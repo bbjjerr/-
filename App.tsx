@@ -45,59 +45,99 @@ const App: React.FC = () => {
 
   // Check auth session on mount
   useEffect(() => {
+    let isMounted = true;
+
     const initAuth = async () => {
-      const session = await authService.getSession();
-      if (session?.user) {
-        await loadUserData();
-        setCurrentScreen(ScreenName.DOCTOR_SEARCH);
-      } else {
-        setCurrentScreen(ScreenName.WELCOME);
+      try {
+        const session = await authService.getSession();
+        if (!isMounted) return;
+        
+        if (session?.user) {
+          setCurrentScreen(ScreenName.DOCTOR_SEARCH);
+          // 延迟加载用户数据，不阻塞首屏
+          setTimeout(() => {
+            if (isMounted) loadUserData();
+          }, 100);
+        } else {
+          setCurrentScreen(ScreenName.WELCOME);
+        }
+      } catch (error) {
+        console.error('Failed to initialize auth session', error);
+        if (isMounted) {
+          setUser(null);
+          setCurrentScreen(ScreenName.WELCOME);
+        }
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     };
 
     initAuth();
 
     const { data: { subscription } } = authService.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        if (forceLoginAfterRegisterRef.current) {
-          forceLoginAfterRegisterRef.current = false;
-          await authService.signOut();
-          setUser(null);
-          setCurrentScreen(ScreenName.LOGIN);
+      if (!isMounted) return;
+      
+      try {
+        // 处理页面刷新时的初始会话恢复
+        if (event === 'INITIAL_SESSION') {
+          // 初始会话已在 initAuth 中处理，这里跳过避免重复
           return;
         }
-        await loadUserData();
-        setCurrentScreen(ScreenName.DOCTOR_SEARCH);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setCurrentScreen(ScreenName.LOGIN);
+        
+        if (event === 'TOKEN_REFRESHED') {
+          // Token 刷新时不需要重新加载页面
+          console.log('Token refreshed successfully');
+          return;
+        }
+        
+        if (event === 'SIGNED_IN' && session) {
+          if (forceLoginAfterRegisterRef.current) {
+            forceLoginAfterRegisterRef.current = false;
+            await authService.signOut();
+            setUser(null);
+            setCurrentScreen(ScreenName.LOGIN);
+            return;
+          }
+          setCurrentScreen(ScreenName.DOCTOR_SEARCH);
+          loadUserData();
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setCurrentScreen(ScreenName.LOGIN);
+        }
+      } catch (error) {
+        console.error('Auth state change handler failed', error);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const loadUserData = async () => {
     try {
       const profile = await authService.getCurrentUserProfile();
-      if (profile) {
-        setUser(profile);
-        setUserPoints(profile.points);
-
-        // Parallel fetch for other data
-        const [userPets, userApts, userChats, history] = await Promise.all([
-          petService.getUserPets(profile.id),
-          appointmentService.getUserAppointments(profile.id),
-          chatService.getUserChats(profile.id),
-          pointService.getPointHistory(profile.id)
-        ]);
-
-        setPets(userPets);
-        setAppointments(userApts);
-        setChats(userChats);
-        setPointHistory(history);
+      if (!profile) {
+        console.warn('No user profile found, user may need to log in again');
+        return;
       }
+      
+      setUser(profile);
+      setUserPoints(profile.points);
+
+      // Parallel fetch for other data
+      const [userPets, userApts, userChats, history] = await Promise.all([
+        petService.getUserPets(profile.id),
+        appointmentService.getUserAppointments(profile.id),
+        chatService.getUserChats(profile.id),
+        pointService.getPointHistory(profile.id)
+      ]);
+
+      setPets(userPets);
+      setAppointments(userApts);
+      setChats(userChats);
+      setPointHistory(history);
     } catch (error) {
       console.error('Failed to load user data', error);
     }
