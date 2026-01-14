@@ -579,7 +579,6 @@ export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; point
                   <div className="h-2 w-24 bg-neutral-800 rounded-full overflow-hidden relative">
                     <div className="absolute top-0 left-0 h-full w-3/4 bg-gradient-to-r from-[#B8860B] to-[#F3E5AB]"></div>
                   </div>
-                  <p className="text-[10px] text-neutral-400 ml-3 self-center">下一等级需 3,000 分</p>
                 </div>
                 <button onClick={() => setShowHistoryModal(true)} className="group flex items-center gap-2 px-4 py-2 bg-white text-[#141414] rounded-lg text-xs font-bold hover:bg-neutral-200 transition-colors">
                   历史记录

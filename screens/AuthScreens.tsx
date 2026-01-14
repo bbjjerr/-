@@ -57,7 +57,7 @@ export const WelcomeScreen: React.FC<AuthScreenProps> = ({ onNavigate }) => {
 };
 
 export const LoginScreen: React.FC<AuthScreenProps> = ({ onNavigate, onLogin, prefillEmail }) => {
-  const [email, setEmail] = useState(prefillEmail || 'admin@163.com');
+  const [email, setEmail] = useState(prefillEmail );
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
