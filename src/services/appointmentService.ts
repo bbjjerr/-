@@ -127,26 +127,204 @@ export const appointmentService = {
         }));
     },
 
-    // 取消预约
-    async cancelAppointment(id: string) {
+    // 取消预约（返还积分）
+    async cancelAppointment(id: string, userId?: string) {
+        // 1. 获取预约信息
+        const { data: appointment, error: fetchError } = await supabase
+            .from('appointments')
+            .select('cost, user_id, status, service')
+            .eq('id', id)
+            .single();
+
+        if (fetchError) throw fetchError;
+
+        // 只有 upcoming 状态的预约可以取消
+        if (appointment.status !== 'upcoming') {
+            throw new Error('只能取消预约中的订单');
+        }
+
+        const cost = appointment.cost || 0;
+        const appointmentUserId = userId || appointment.user_id;
+
+        // 2. 更新预约状态为取消
         const { error } = await supabase
             .from('appointments')
             .update({ status: 'cancelled' })
             .eq('id', id);
 
         if (error) throw error;
+
+        // 3. 返还积分
+        if (cost > 0) {
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('points')
+                .eq('id', appointmentUserId)
+                .single();
+
+            if (!userError && userData) {
+                const newPoints = (userData.points || 0) + cost;
+                await supabase
+                    .from('users')
+                    .update({ points: newPoints })
+                    .eq('id', appointmentUserId);
+
+                // 4. 记录积分历史
+                await supabase.from('point_history').insert([{
+                    user_id: appointmentUserId,
+                    title: '取消预约退款',
+                    description: `取消服务: ${appointment.service}`,
+                    type: 'refund',
+                    amount: cost,
+                    points: cost,
+                    transaction_date: new Date().toISOString().split('T')[0]
+                }]);
+            }
+        }
+
+        return { refundedPoints: cost };
+    },
+
+    // 管理员更新预约状态
+    async updateAppointmentStatus(id: string, status: 'upcoming' | 'in_progress' | 'completed' | 'cancelled', options?: {
+        startTime?: string;  // 进行中开始时间
+        endTime?: string;    // 进行中结束时间
+        adminNote?: string;  // 管理员备注
+    }) {
+        const updateData: any = { status };
+        
+        if (options?.startTime) updateData.start_time = options.startTime;
+        if (options?.endTime) updateData.end_time = options.endTime;
+        if (options?.adminNote) updateData.admin_note = options.adminNote;
+
+        const { data, error } = await supabase
+            .from('appointments')
+            .update(updateData)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    // 获取预约详情
+    async getAppointmentById(id: string) {
+        const { data, error } = await supabase
+            .from('appointments')
+            .select(`
+                *,
+                users (id, name, email),
+                doctors (id, name, title, image_url),
+                pets (id, name, breed)
+            `)
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+        return data;
     },
 
     // 检查医生某天的预约情况 (用于判断 slot 是否已满)
     async getDoctorAppointmentsByDate(doctorId: string, date: string) {
         const { data, error } = await supabase
             .from('appointments')
-            .select('appointment_time')
+            .select('appointment_time, status, start_time, end_time')
             .eq('doctor_id', doctorId)
             .eq('appointment_date', date)
-            .neq('status', 'cancelled');
+            .in('status', ['upcoming', 'in_progress']);
 
         if (error) throw error;
         return data;
+    },
+
+    // 检查时间段是否与进行中的预约冲突
+    async checkTimeConflict(doctorId: string, date: string, time: string): Promise<{ hasConflict: boolean; message?: string }> {
+        const { data, error } = await supabase
+            .from('appointments')
+            .select('start_time, end_time, status')
+            .eq('doctor_id', doctorId)
+            .eq('appointment_date', date)
+            .eq('status', 'in_progress');
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            return { hasConflict: false };
+        }
+
+        // 将时间字符串转换为分钟数进行比较
+        const timeToMinutes = (t: string): number => {
+            const [h, m] = t.slice(0, 5).split(':').map(Number);
+            return h * 60 + m;
+        };
+
+        const requestedMinutes = timeToMinutes(time);
+
+        for (const apt of data) {
+            if (apt.start_time && apt.end_time) {
+                const startMinutes = timeToMinutes(String(apt.start_time));
+                const endMinutes = timeToMinutes(String(apt.end_time));
+
+                // 检查请求时间是否在进行中的时间段内
+                if (requestedMinutes >= startMinutes && requestedMinutes < endMinutes) {
+                    return {
+                        hasConflict: true,
+                        message: `该时间段医生正在进行服务中（${String(apt.start_time).slice(0, 5)} - ${String(apt.end_time).slice(0, 5)}）`
+                    };
+                }
+            }
+        }
+
+        return { hasConflict: false };
+    },
+
+    // 获取医生某天所有被占用的时间段
+    async getBlockedTimeSlots(doctorId: string, date: string): Promise<{ time: string; reason: string }[]> {
+        const { data, error } = await supabase
+            .from('appointments')
+            .select('appointment_time, status, start_time, end_time')
+            .eq('doctor_id', doctorId)
+            .eq('appointment_date', date)
+            .in('status', ['upcoming', 'in_progress']);
+
+        if (error) throw error;
+
+        const blocked: { time: string; reason: string }[] = [];
+
+        for (const apt of data || []) {
+            // 预约中的时间点
+            if (apt.status === 'upcoming') {
+                blocked.push({
+                    time: String(apt.appointment_time).slice(0, 5),
+                    reason: '已被预约'
+                });
+            }
+            
+            // 进行中的时间段
+            if (apt.status === 'in_progress' && apt.start_time && apt.end_time) {
+                const startMinutes = this.timeToMinutes(String(apt.start_time));
+                const endMinutes = this.timeToMinutes(String(apt.end_time));
+                
+                // 生成这个时间段内所有的半小时时间点
+                for (let m = startMinutes; m < endMinutes; m += 30) {
+                    const hours = Math.floor(m / 60);
+                    const mins = m % 60;
+                    const timeStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                    blocked.push({
+                        time: timeStr,
+                        reason: '医生服务中'
+                    });
+                }
+            }
+        }
+
+        return blocked;
+    },
+
+    // 辅助函数：时间转分钟
+    timeToMinutes(t: string): number {
+        const [h, m] = t.slice(0, 5).split(':').map(Number);
+        return h * 60 + m;
     }
 };

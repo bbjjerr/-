@@ -6,7 +6,7 @@ interface NavProps {
   onNavigate: (screen: ScreenName, data?: any) => void;
 }
 
-export const ChatListScreen: React.FC<NavProps & { chats?: any[], onMarkAsRead?: (id: string) => void }> = ({ onNavigate, chats: propChats, onMarkAsRead }) => {
+export const ChatListScreen: React.FC<NavProps & { chats?: any[], appointments?: any[], onMarkAsRead?: (id: string) => void }> = ({ onNavigate, chats: propChats, appointments = [], onMarkAsRead }) => {
   const defaultChats = [
     { id: 1, name: '艾米丽·陈医生', message: '这是牙科图表参考。', time: '09:46 AM', unread: 0, image: IMAGES.drEmily },
     { id: 2, name: '莎拉·史密斯医生', message: '手术恢复得很好，不用担心。', time: '昨天', unread: 2, image: IMAGES.drSarah },
@@ -14,6 +14,13 @@ export const ChatListScreen: React.FC<NavProps & { chats?: any[], onMarkAsRead?:
   ];
 
   const chats = propChats || defaultChats;
+
+  // 获取进行中和即将开始的预约
+  const activeAppointments = appointments.filter(apt => 
+    apt.status === 'in_progress' || apt.status === 'upcoming'
+  );
+  const inProgressCount = appointments.filter(apt => apt.status === 'in_progress').length;
+  const upcomingCount = appointments.filter(apt => apt.status === 'upcoming').length;
 
   return (
     <div className="bg-background-light font-display antialiased min-h-screen flex flex-col pb-24">
@@ -25,7 +32,54 @@ export const ChatListScreen: React.FC<NavProps & { chats?: any[], onMarkAsRead?:
             </button>
          </div>
       </div>
-      <div className="flex-1 p-4 flex flex-col gap-2">
+      
+      <div className="flex-1 p-4 flex flex-col gap-3">
+        {/* 订单状态提醒卡片 */}
+        {activeAppointments.length > 0 && (
+          <div className="space-y-2 mb-2">
+            {inProgressCount > 0 && (
+              <div 
+                onClick={() => onNavigate(ScreenName.APPOINTMENTS_LIST)}
+                className="bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl p-4 text-white cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                    <span className="material-symbols-outlined text-2xl animate-pulse">play_circle</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-bold text-lg">服务进行中</div>
+                    <div className="text-white/80 text-sm">
+                      您有 {inProgressCount} 个预约正在进行，请留意医生消息
+                    </div>
+                  </div>
+                  <span className="material-symbols-outlined">chevron_right</span>
+                </div>
+              </div>
+            )}
+            
+            {upcomingCount > 0 && inProgressCount === 0 && (
+              <div 
+                onClick={() => onNavigate(ScreenName.APPOINTMENTS_LIST)}
+                className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl p-4 text-white cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                    <span className="material-symbols-outlined text-2xl">calendar_month</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-bold text-lg">即将到来的预约</div>
+                    <div className="text-white/80 text-sm">
+                      您有 {upcomingCount} 个预约待进行，点击查看详情
+                    </div>
+                  </div>
+                  <span className="material-symbols-outlined">chevron_right</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 聊天列表 */}
         {chats.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-16 px-6 text-neutral-500">
             <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-neutral-100 mb-4">

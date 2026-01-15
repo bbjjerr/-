@@ -11,6 +11,7 @@ import { doctorService } from './src/services/doctorService';
 import { petService } from './src/services/petService';
 import { chatService, ChatSession } from './src/services/chatService';
 import { pointService, PointHistoryItem } from './src/services/pointService';
+import { supabase } from './src/services/supabaseClient';
 
 const App: React.FC = () => {
   // Navigation State
@@ -39,8 +40,13 @@ const App: React.FC = () => {
   const [prefillLoginEmail, setPrefillLoginEmail] = useState<string>('');
 
   // Toast for welcome message after login
-  const [welcomeToast, setWelcomeToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [welcomeToast, setWelcomeToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'info' }>({ show: false, message: '', type: 'success' });
   const pendingWelcomeRef = useRef(false);
+
+  // 显示 toast 的通用函数
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setWelcomeToast({ show: true, message, type });
+  };
 
   // If user just registered, force them back to login (avoid auto-redirect to app on SIGNED_IN)
   const forceLoginAfterRegisterRef = useRef(false);
@@ -118,6 +124,63 @@ const App: React.FC = () => {
       subscription.unsubscribe();
     };
   }, []);
+
+  // 实时订阅用户积分变化
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`user-points-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${user.id}`
+        },
+        (payload) => {
+          const newPoints = payload.new?.points;
+          if (newPoints !== undefined && newPoints !== userPoints) {
+            setUserPoints(newPoints);
+            setUser(prev => prev ? { ...prev, points: newPoints } : prev);
+            // 同时刷新积分历史
+            pointService.getPointHistory(user.id).then(setPointHistory);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, userPoints]);
+
+  // 实时订阅预约状态变化
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`user-appointments-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          // 预约有变化时刷新预约列表
+          appointmentService.getUserAppointments(user.id).then(setAppointments);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!welcomeToast.show) return;
@@ -223,10 +286,12 @@ const App: React.FC = () => {
 
   const handleCancelAppointment = async (id: number) => {
     try {
-      await appointmentService.cancelAppointment(id.toString());
+      const result = await appointmentService.cancelAppointment(id.toString());
+      showToast(`预约已取消，已退还 ${result.refundedPoints} 积分`, 'success');
       await loadUserData(); // Refresh
-    } catch (e) {
+    } catch (e: any) {
       console.error("Cancel failed", e);
+      showToast(e?.message || '取消预约失败', 'error');
     }
   };
 
@@ -267,6 +332,10 @@ const App: React.FC = () => {
     }
     if (screen === ScreenName.CHAT_LIST) {
       if (user) chatService.getUserChats(user.id).then(setChats);
+    }
+    if (screen === ScreenName.USER_PROFILE) {
+      // 进入"我的"页面时自动刷新用户数据（积分等）
+      loadUserData();
     }
     if (screen === ScreenName.APPOINTMENT_DETAIL && data) {
       setSelectedAppointment(data);
@@ -314,7 +383,13 @@ const App: React.FC = () => {
       {welcomeToast.show && (
         <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[70] bg-black/80 text-white px-6 py-3 rounded-2xl backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-green-400">check_circle</span>
+            <span className={`material-symbols-outlined ${
+              welcomeToast.type === 'error' ? 'text-red-400' : 
+              welcomeToast.type === 'info' ? 'text-blue-400' : 'text-green-400'
+            }`}>
+              {welcomeToast.type === 'error' ? 'error' : 
+               welcomeToast.type === 'info' ? 'info' : 'check_circle'}
+            </span>
             <span className="font-medium text-sm">{welcomeToast.message}</span>
           </div>
         </div>
@@ -339,7 +414,7 @@ const App: React.FC = () => {
       {currentScreen === ScreenName.APPOINTMENTS_LIST && <AppointmentsListScreen onNavigate={navigate} appointmentsList={appointments} />}
       {currentScreen === ScreenName.APPOINTMENT_DETAIL && <AppointmentDetailScreen onNavigate={navigate} appointment={selectedAppointment} onCancelAppointment={handleCancelAppointment} />}
       {currentScreen === ScreenName.CHAT && <ChatScreen onNavigate={navigate} userId={user?.id} chatId={selectedChatId} doctor={selectedDoctor} backScreen={chatBackScreen} onUpdateLastMessage={handleUpdateLastMessage} />}
-      {currentScreen === ScreenName.CHAT_LIST && <ChatListScreen onNavigate={navigate} chats={chats} onMarkAsRead={handleMarkAsRead} />}
+      {currentScreen === ScreenName.CHAT_LIST && <ChatListScreen onNavigate={navigate} chats={chats} appointments={appointments} onMarkAsRead={handleMarkAsRead} />}
       {currentScreen === ScreenName.PET_PROFILE && <PetProfileScreen onNavigate={navigate} pets={pets} />}
       {currentScreen === ScreenName.USER_PROFILE && <UserProfileScreen onNavigate={navigate} user={user} userPoints={userPoints} pointHistory={pointHistory} onRedeem={handleRedeemPoints} onLogout={handleLogout} />}
       {currentScreen === ScreenName.ADMIN && <AdminScreen onNavigate={navigate} isAdmin={Boolean(user?.is_admin)} />}

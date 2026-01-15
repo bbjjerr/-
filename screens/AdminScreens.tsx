@@ -324,6 +324,14 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
   const [newPetImageUploading, setNewPetImageUploading] = useState(false);
   const [editingPet, setEditingPet] = useState<AdminPetRow | null>(null);
   
+  // 预约详情管理
+  const [selectedAppointment, setSelectedAppointment] = useState<AdminAppointmentRow | null>(null);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [appointmentLoading, setAppointmentLoading] = useState(false);
+  const [inProgressTime, setInProgressTime] = useState({ start: '09:00', end: '10:00' });
+  const [completionNote, setCompletionNote] = useState('');
+  const [appointmentFilter, setAppointmentFilter] = useState<'all' | 'upcoming' | 'in_progress' | 'completed' | 'cancelled'>('all');
+  
   // 积分管理
   const [updatingPointsUserId, setUpdatingPointsUserId] = useState<string | null>(null);
 
@@ -386,6 +394,36 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
       u.email.toLowerCase().includes(search)
     );
   }, [users, userSearch]);
+
+  // 过滤和排序预约
+  const filteredAppointments = useMemo(() => {
+    let result = [...appointments];
+    
+    // 按状态筛选
+    if (appointmentFilter !== 'all') {
+      result = result.filter(a => a.status === appointmentFilter);
+    }
+    
+    // 按日期时间排序（最新的在前）
+    result.sort((a, b) => {
+      const dateA = new Date(`${a.appointment_date}T${a.appointment_time}`);
+      const dateB = new Date(`${b.appointment_date}T${b.appointment_time}`);
+      return dateB.getTime() - dateA.getTime();
+    });
+    
+    return result;
+  }, [appointments, appointmentFilter]);
+
+  // 预约状态统计
+  const appointmentStats = useMemo(() => {
+    return {
+      all: appointments.length,
+      upcoming: appointments.filter(a => a.status === 'upcoming').length,
+      in_progress: appointments.filter(a => a.status === 'in_progress').length,
+      completed: appointments.filter(a => a.status === 'completed').length,
+      cancelled: appointments.filter(a => a.status === 'cancelled').length
+    };
+  }, [appointments]);
 
   const refresh = async () => {
     if (!isAdmin) return;
@@ -671,6 +709,97 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
       showToast(e?.message || '删除兑换码失败', true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 预约管理函数
+  const openAppointmentDetail = (appointment: AdminAppointmentRow) => {
+    setSelectedAppointment(appointment);
+    setShowAppointmentModal(true);
+    setCompletionNote('');
+    // 根据预约时间设置默认进行时间
+    if (appointment.appointment_time) {
+      const time = String(appointment.appointment_time).slice(0, 5);
+      setInProgressTime({ start: time, end: addOneHour(time) });
+    }
+  };
+
+  const addOneHour = (time: string): string => {
+    const [h, m] = time.split(':').map(Number);
+    const newH = (h + 1) % 24;
+    return `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
+  const closeAppointmentModal = () => {
+    setShowAppointmentModal(false);
+    setSelectedAppointment(null);
+    setCompletionNote('');
+  };
+
+  const handleAdminCancelAppointment = async () => {
+    if (!selectedAppointment) return;
+    if (!confirm('确定要取消此预约吗？用户将收到积分退款。')) return;
+    setAppointmentLoading(true);
+    try {
+      const result = await adminService.cancelAppointment(selectedAppointment.id);
+      showToast(`预约已取消，已退还 ${result.refundedPoints} 积分`);
+      await refresh();
+      closeAppointmentModal();
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '取消预约失败', true);
+    } finally {
+      setAppointmentLoading(false);
+    }
+  };
+
+  const handleSetInProgress = async () => {
+    if (!selectedAppointment) return;
+    if (!inProgressTime.start || !inProgressTime.end) {
+      showToast('请设置开始和结束时间', true);
+      return;
+    }
+    setAppointmentLoading(true);
+    try {
+      await adminService.setAppointmentInProgress(
+        selectedAppointment.id,
+        inProgressTime.start,
+        inProgressTime.end
+      );
+      showToast('预约已设为进行中');
+      await refresh();
+      closeAppointmentModal();
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '设置失败', true);
+    } finally {
+      setAppointmentLoading(false);
+    }
+  };
+
+  const handleCompleteAppointment = async () => {
+    if (!selectedAppointment) return;
+    setAppointmentLoading(true);
+    try {
+      await adminService.completeAppointment(selectedAppointment.id, completionNote || undefined);
+      showToast('预约已完成，就诊记录已生成');
+      await refresh();
+      closeAppointmentModal();
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '完成预约失败', true);
+    } finally {
+      setAppointmentLoading(false);
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'upcoming': return { text: '预约中', color: 'bg-blue-100 text-blue-600' };
+      case 'in_progress': return { text: '进行中', color: 'bg-orange-100 text-orange-600' };
+      case 'completed': return { text: '已完成', color: 'bg-green-100 text-green-600' };
+      case 'cancelled': return { text: '已取消', color: 'bg-neutral-100 text-neutral-500' };
+      default: return { text: status, color: 'bg-neutral-100 text-neutral-500' };
     }
   };
 
@@ -1061,6 +1190,235 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
           </div>
         )}
 
+        {/* 预约详情模态框 */}
+        {showAppointmentModal && selectedAppointment && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+            {/* 蒙层 */}
+            <div 
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={closeAppointmentModal}
+            />
+            {/* 弹窗内容 */}
+            <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-3xl shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
+              {/* 加载遮罩 */}
+              {appointmentLoading && (
+                <div className="absolute inset-0 bg-white/80 z-20 flex items-center justify-center rounded-3xl">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="animate-spin rounded-full h-10 w-10 border-3 border-primary border-t-transparent"></div>
+                    <span className="text-sm text-primary font-medium">处理中...</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* 弹窗头部 */}
+              <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-neutral-100 rounded-t-3xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-black text-primary text-lg">预约详情</h3>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      订单 #{selectedAppointment.id.slice(0, 8)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeAppointmentModal}
+                    className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center hover:bg-neutral-200 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-neutral-600">close</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* 状态显示 */}
+                <div className="flex items-center justify-center">
+                  <span className={`px-4 py-2 rounded-full text-sm font-bold ${getStatusLabel(selectedAppointment.status).color}`}>
+                    {getStatusLabel(selectedAppointment.status).text}
+                  </span>
+                </div>
+
+                {/* 基本信息 */}
+                <div className="bg-neutral-50 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-primary">person</span>
+                    </div>
+                    <div>
+                      <div className="text-xs text-neutral-400">用户</div>
+                      <div className="font-bold text-primary text-sm">{selectedAppointment.users?.name || '-'}</div>
+                      <div className="text-xs text-neutral-500">{selectedAppointment.users?.email || '-'}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-green-600">medical_services</span>
+                    </div>
+                    <div>
+                      <div className="text-xs text-neutral-400">医生</div>
+                      <div className="font-bold text-primary text-sm">{selectedAppointment.doctors?.name || '-'}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-amber-600">pets</span>
+                    </div>
+                    <div>
+                      <div className="text-xs text-neutral-400">宠物</div>
+                      <div className="font-bold text-primary text-sm">{selectedAppointment.pet_name}</div>
+                      {selectedAppointment.pets && (
+                        <div className="text-xs text-neutral-500">{selectedAppointment.pets.breed}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 时间与费用 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-blue-50 rounded-xl p-3 text-center">
+                    <span className="material-symbols-outlined text-blue-500 text-xl">calendar_month</span>
+                    <div className="text-xs text-blue-500 mt-1">预约日期</div>
+                    <div className="font-bold text-primary text-sm">{selectedAppointment.appointment_date}</div>
+                    <div className="text-xs text-neutral-500">{String(selectedAppointment.appointment_time).slice(0, 5)}</div>
+                  </div>
+                  <div className="bg-amber-50 rounded-xl p-3 text-center">
+                    <span className="material-symbols-outlined text-amber-500 text-xl">toll</span>
+                    <div className="text-xs text-amber-500 mt-1">消耗积分</div>
+                    <div className="font-bold text-primary text-sm">¥{selectedAppointment.cost}</div>
+                  </div>
+                </div>
+
+                {/* 服务信息 */}
+                {selectedAppointment.service && (
+                  <div className="bg-neutral-50 rounded-xl p-3">
+                    <div className="text-xs text-neutral-400 mb-1">服务类型</div>
+                    <div className="font-bold text-primary text-sm">{selectedAppointment.service}</div>
+                  </div>
+                )}
+
+                {/* 进行中时间信息 */}
+                {selectedAppointment.start_time && selectedAppointment.end_time && (
+                  <div className="bg-orange-50 rounded-xl p-3">
+                    <div className="flex items-center gap-2 text-orange-600 mb-1">
+                      <span className="material-symbols-outlined text-sm">schedule</span>
+                      <span className="text-xs font-bold">进行时间段</span>
+                    </div>
+                    <div className="font-bold text-primary text-sm">
+                      {String(selectedAppointment.start_time).slice(0, 5)} - {String(selectedAppointment.end_time).slice(0, 5)}
+                    </div>
+                  </div>
+                )}
+
+                {/* 管理员备注 */}
+                {selectedAppointment.admin_note && (
+                  <div className="bg-neutral-50 rounded-xl p-3">
+                    <div className="text-xs text-neutral-400 mb-1">管理员备注</div>
+                    <div className="text-sm text-neutral-600">{selectedAppointment.admin_note}</div>
+                  </div>
+                )}
+
+                {/* 完成时间 */}
+                {selectedAppointment.completed_at && (
+                  <div className="bg-green-50 rounded-xl p-3">
+                    <div className="text-xs text-green-600 mb-1">完成时间</div>
+                    <div className="text-sm font-medium text-green-700">
+                      {new Date(selectedAppointment.completed_at).toLocaleString('zh-CN')}
+                    </div>
+                  </div>
+                )}
+
+                {/* 操作区域 - 预约中状态 */}
+                {selectedAppointment.status === 'upcoming' && (
+                  <div className="space-y-3 pt-4 border-t border-neutral-100">
+                    <div className="font-bold text-primary text-sm mb-2">操作</div>
+                    
+                    {/* 设置进行中 */}
+                    <div className="bg-orange-50 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-orange-600">
+                        <span className="material-symbols-outlined text-sm">play_circle</span>
+                        <span className="text-xs font-bold">设置为进行中</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-neutral-400 block mb-1">开始时间</label>
+                          <input
+                            type="time"
+                            value={inProgressTime.start}
+                            onChange={e => setInProgressTime(t => ({ ...t, start: e.target.value }))}
+                            className="w-full h-10 rounded-lg bg-white border border-orange-200 px-3 text-sm font-medium focus:border-orange-400 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-neutral-400 block mb-1">结束时间</label>
+                          <input
+                            type="time"
+                            value={inProgressTime.end}
+                            onChange={e => setInProgressTime(t => ({ ...t, end: e.target.value }))}
+                            className="w-full h-10 rounded-lg bg-white border border-orange-200 px-3 text-sm font-medium focus:border-orange-400 outline-none"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleSetInProgress}
+                        disabled={appointmentLoading}
+                        className="w-full h-10 rounded-xl bg-orange-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-lg">play_arrow</span>
+                        开始服务
+                      </button>
+                      <p className="text-[10px] text-orange-600/70">
+                        * 设置后，该时间段内其他用户无法预约此医生
+                      </p>
+                    </div>
+
+                    {/* 取消预约 */}
+                    <button
+                      onClick={handleAdminCancelAppointment}
+                      disabled={appointmentLoading}
+                      className="w-full h-12 rounded-xl bg-red-500 text-white font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <span className="material-symbols-outlined">cancel</span>
+                      取消预约（退还积分）
+                    </button>
+                  </div>
+                )}
+
+                {/* 操作区域 - 进行中状态 */}
+                {selectedAppointment.status === 'in_progress' && (
+                  <div className="space-y-3 pt-4 border-t border-neutral-100">
+                    <div className="font-bold text-primary text-sm mb-2">操作</div>
+                    
+                    {/* 完成预约 */}
+                    <div className="bg-green-50 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-green-600">
+                        <span className="material-symbols-outlined text-sm">check_circle</span>
+                        <span className="text-xs font-bold">完成服务</span>
+                      </div>
+                      <textarea
+                        placeholder="输入完成备注（可选，如诊断结果）"
+                        value={completionNote}
+                        onChange={e => setCompletionNote(e.target.value)}
+                        className="w-full h-20 rounded-lg bg-white border border-green-200 px-3 py-2 text-sm resize-none focus:border-green-400 outline-none"
+                      />
+                      <button
+                        onClick={handleCompleteAppointment}
+                        disabled={appointmentLoading}
+                        className="w-full h-10 rounded-xl bg-green-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-lg">done_all</span>
+                        完成服务
+                      </button>
+                      <p className="text-[10px] text-green-600/70">
+                        * 完成后将自动生成宠物就诊记录
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === 'doctors' && (
           <>
             <div className="bg-white rounded-3xl p-4 border border-neutral-100 shadow-sm mb-4">
@@ -1094,20 +1452,134 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
         )}
 
         {tab === 'appointments' && (
-          <div className="bg-white rounded-3xl p-4 border border-neutral-100 shadow-sm">
-            <div className="font-black text-primary mb-3">预约列表</div>
-            <div className="space-y-3">
-              {appointments.map(a => (
-                <div key={a.id} className="border-b border-neutral-50 pb-3 last:border-0 last:pb-0">
-                  <div className="flex items-center justify-between">
-                    <div className="font-bold text-primary text-sm">{a.doctors?.name || '医生'}</div>
-                    <div className="text-[10px] font-black text-neutral-500 uppercase">{a.status}</div>
-                  </div>
-                  <div className="text-xs text-neutral-500 mt-1">{a.appointment_date} {String(a.appointment_time).slice(0, 5)} · {a.pet_name} · ¥{a.cost}</div>
-                  <div className="text-xs text-neutral-400 mt-1">用户：{a.users?.name || '-'}（{a.users?.email || '-'}）</div>
-                </div>
+          <div className="space-y-4">
+            {/* 状态筛选标签 */}
+            <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+              {[
+                { key: 'all', label: '全部', icon: 'list', count: appointmentStats.all },
+                { key: 'upcoming', label: '预约中', icon: 'schedule', count: appointmentStats.upcoming },
+                { key: 'in_progress', label: '进行中', icon: 'play_circle', count: appointmentStats.in_progress },
+                { key: 'completed', label: '已完成', icon: 'check_circle', count: appointmentStats.completed },
+                { key: 'cancelled', label: '已取消', icon: 'cancel', count: appointmentStats.cancelled }
+              ].map(item => (
+                <button
+                  key={item.key}
+                  onClick={() => setAppointmentFilter(item.key as any)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                    appointmentFilter === item.key
+                      ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                      : 'bg-white text-neutral-600 border border-neutral-100 hover:border-primary/30'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-sm">{item.icon}</span>
+                  {item.label}
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                    appointmentFilter === item.key ? 'bg-white/20' : 'bg-neutral-100'
+                  }`}>
+                    {item.count}
+                  </span>
+                </button>
               ))}
-              {appointments.length === 0 && <div className="text-sm text-neutral-400">暂无数据</div>}
+            </div>
+
+            {/* 预约列表 */}
+            <div className="space-y-3">
+              {filteredAppointments.map(a => {
+                const statusInfo = getStatusLabel(a.status);
+                const isUrgent = a.status === 'in_progress';
+                const isPending = a.status === 'upcoming';
+                
+                return (
+                  <div 
+                    key={a.id} 
+                    onClick={() => openAppointmentDetail(a)}
+                    className={`bg-white rounded-2xl p-4 cursor-pointer transition-all hover:shadow-lg border ${
+                      isUrgent ? 'border-orange-200 bg-gradient-to-r from-orange-50 to-white' :
+                      isPending ? 'border-blue-200 bg-gradient-to-r from-blue-50 to-white' :
+                      'border-neutral-100 hover:border-primary/20'
+                    }`}
+                  >
+                    {/* 状态指示条 */}
+                    <div className={`h-1 rounded-full mb-3 ${
+                      a.status === 'upcoming' ? 'bg-blue-400' :
+                      a.status === 'in_progress' ? 'bg-orange-400' :
+                      a.status === 'completed' ? 'bg-green-400' :
+                      'bg-neutral-300'
+                    }`} />
+                    
+                    <div className="flex items-start justify-between gap-3">
+                      {/* 左侧信息 */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-primary">medical_services</span>
+                          </div>
+                          <div>
+                            <div className="font-bold text-primary text-sm">{a.doctors?.name || '医生'}</div>
+                            <div className="text-[10px] text-neutral-400">{a.service || '宠物服务'}</div>
+                          </div>
+                        </div>
+                        
+                        {/* 用户和宠物信息 */}
+                        <div className="flex items-center gap-4 mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-neutral-400 text-sm">person</span>
+                            <span className="text-xs text-neutral-600 font-medium">{a.users?.name || '-'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-neutral-400 text-sm">pets</span>
+                            <span className="text-xs text-neutral-600 font-medium">{a.pet_name}</span>
+                          </div>
+                        </div>
+                        
+                        {/* 时间信息 */}
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className="flex items-center gap-1 text-neutral-500">
+                            <span className="material-symbols-outlined text-sm">calendar_today</span>
+                            {a.appointment_date}
+                          </div>
+                          <div className="flex items-center gap-1 text-neutral-500">
+                            <span className="material-symbols-outlined text-sm">schedule</span>
+                            {String(a.appointment_time).slice(0, 5)}
+                          </div>
+                          <div className="flex items-center gap-1 text-primary font-bold">
+                            <span className="material-symbols-outlined text-sm">toll</span>
+                            ¥{a.cost}
+                          </div>
+                        </div>
+                        
+                        {/* 进行中时间 */}
+                        {a.start_time && a.end_time && (
+                          <div className="mt-2 flex items-center gap-1.5 text-orange-600 bg-orange-50 px-2 py-1 rounded-lg w-fit">
+                            <span className="material-symbols-outlined text-sm">timer</span>
+                            <span className="text-xs font-bold">
+                              服务中: {String(a.start_time).slice(0, 5)} - {String(a.end_time).slice(0, 5)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* 右侧状态和操作 */}
+                      <div className="flex flex-col items-end gap-2">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${statusInfo.color}`}>
+                          {statusInfo.text}
+                        </span>
+                        <button className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary font-medium">
+                          <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                          详情
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {filteredAppointments.length === 0 && (
+                <div className="bg-white rounded-2xl p-8 border border-neutral-100 text-center">
+                  <span className="material-symbols-outlined text-4xl text-neutral-300 mb-2">event_busy</span>
+                  <p className="text-sm text-neutral-400">暂无{appointmentFilter === 'all' ? '' : getStatusLabel(appointmentFilter).text}预约</p>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -42,13 +42,22 @@ export type AdminRedeemCodeRow = {
 
 export type AdminAppointmentRow = {
   id: string;
+  user_id?: string;
+  doctor_id?: string;
+  pet_id?: string;
   appointment_date: string;
   appointment_time: string;
   status: string;
   cost: number;
   pet_name: string;
+  service?: string;
+  start_time?: string;
+  end_time?: string;
+  admin_note?: string;
+  completed_at?: string;
   users?: { name: string; email: string } | null;
-  doctors?: { name: string } | null;
+  doctors?: { name: string; image_url?: string } | null;
+  pets?: { name: string; breed: string } | null;
 };
 
 export type AdminPetRow = {
@@ -176,9 +185,10 @@ export const adminService = {
     const { data, error } = await supabase
       .from('appointments')
       .select(
-        `id,appointment_date,appointment_time,status,cost,pet_name,
+        `id,user_id,doctor_id,pet_id,appointment_date,appointment_time,status,cost,pet_name,service,start_time,end_time,admin_note,completed_at,
          users(name,email),
-         doctors(name)`
+         doctors(name,image_url),
+         pets(name,breed)`
       )
       .order('appointment_date', { ascending: false })
       .limit(limit);
@@ -186,17 +196,169 @@ export const adminService = {
     if (error) throw error;
 
     const rows = (data || []) as unknown as Array<
-      Omit<AdminAppointmentRow, 'users' | 'doctors'> & {
+      Omit<AdminAppointmentRow, 'users' | 'doctors' | 'pets'> & {
         users?: EmbeddedOne<{ name: string; email: string }>;
-        doctors?: EmbeddedOne<{ name: string }>;
+        doctors?: EmbeddedOne<{ name: string; image_url?: string }>;
+        pets?: EmbeddedOne<{ name: string; breed: string }>;
       }
     >;
 
     return rows.map((r) => ({
       ...r,
       users: pickEmbeddedOne(r.users),
-      doctors: pickEmbeddedOne(r.doctors)
+      doctors: pickEmbeddedOne(r.doctors),
+      pets: pickEmbeddedOne(r.pets)
     }));
+  },
+
+  // 获取单个预约详情
+  async getAppointmentDetail(id: string): Promise<AdminAppointmentRow | null> {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(
+        `id,user_id,doctor_id,pet_id,appointment_date,appointment_time,status,cost,pet_name,service,start_time,end_time,admin_note,completed_at,
+         users(name,email),
+         doctors(name,image_url),
+         pets(name,breed)`
+      )
+      .eq('id', id)
+      .single();
+
+    if (error) return null;
+
+    const r = data as any;
+    return {
+      ...r,
+      users: pickEmbeddedOne(r.users),
+      doctors: pickEmbeddedOne(r.doctors),
+      pets: pickEmbeddedOne(r.pets)
+    };
+  },
+
+  // 管理员取消预约（返还积分）
+  async cancelAppointment(id: string): Promise<{ refundedPoints: number }> {
+    // 获取预约信息
+    const { data: appointment, error: fetchError } = await supabase
+      .from('appointments')
+      .select('cost, user_id, status, service')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    if (appointment.status !== 'upcoming') {
+      throw new Error('只能取消预约中的订单');
+    }
+
+    const cost = appointment.cost || 0;
+
+    // 更新状态
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: 'cancelled', admin_note: '管理员取消' })
+      .eq('id', id);
+
+    if (error) throw error;
+
+    // 返还积分
+    if (cost > 0) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('points')
+        .eq('id', appointment.user_id)
+        .single();
+
+      if (userData) {
+        const newPoints = (userData.points || 0) + cost;
+        await supabase
+          .from('users')
+          .update({ points: newPoints })
+          .eq('id', appointment.user_id);
+
+        await supabase.from('point_history').insert([{
+          user_id: appointment.user_id,
+          title: '管理员取消预约退款',
+          description: `取消服务: ${appointment.service}`,
+          type: 'refund',
+          amount: cost,
+          points: cost,
+          transaction_date: new Date().toISOString().split('T')[0]
+        }]);
+      }
+    }
+
+    return { refundedPoints: cost };
+  },
+
+  // 管理员设置预约为进行中
+  async setAppointmentInProgress(id: string, startTime: string, endTime: string): Promise<AdminAppointmentRow> {
+    const { data, error } = await supabase
+      .from('appointments')
+      .update({
+        status: 'in_progress',
+        start_time: startTime,
+        end_time: endTime
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as AdminAppointmentRow;
+  },
+
+  // 管理员完成预约
+  async completeAppointment(id: string, note?: string): Promise<AdminAppointmentRow> {
+    const { data: appointment, error: fetchError } = await supabase
+      .from('appointments')
+      .select('pet_id, pet_name, service, doctor_id, doctors(name)')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // 更新预约状态
+    const { data, error } = await supabase
+      .from('appointments')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        admin_note: note
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // 如果有 pet_id，添加就诊记录到宠物的 medical_records
+    if (appointment.pet_id) {
+      const { data: petData } = await supabase
+        .from('pets')
+        .select('medical_records')
+        .eq('id', appointment.pet_id)
+        .single();
+
+      const existingRecords = petData?.medical_records || [];
+      const doctorName = (appointment.doctors as any)?.name || '医生';
+      
+      const newRecord = {
+        title: appointment.service || '宠物全检',
+        subtitle: `${doctorName} · ${note || '已完成'}`,
+        date: new Date().toISOString().split('T')[0],
+        icon: 'ecg_heart',
+        color: 'green'
+      };
+
+      await supabase
+        .from('pets')
+        .update({
+          medical_records: [...existingRecords, newRecord]
+        })
+        .eq('id', appointment.pet_id);
+    }
+
+    return data as AdminAppointmentRow;
   },
 
   async listPetsByUser(userId: string, limit = 50): Promise<AdminPetRow[]> {

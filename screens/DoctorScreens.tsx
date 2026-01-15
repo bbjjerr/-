@@ -312,15 +312,28 @@ export const AppointmentsListScreen: React.FC<NavProps & { appointmentsList?: an
 
 export const AppointmentDetailScreen: React.FC<NavProps & { appointment: any, onCancelAppointment: (id: number) => void }> = ({ onNavigate, appointment, onCancelAppointment }) => {
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   if (!appointment) return null;
 
-  const handleCancel = () => {
-    onCancelAppointment(appointment.id);
-    onNavigate(ScreenName.APPOINTMENTS_LIST);
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      await new Promise<void>((resolve) => {
+        onCancelAppointment(appointment.id);
+        // 给一个小延迟让动画更流畅
+        setTimeout(resolve, 500);
+      });
+      onNavigate(ScreenName.APPOINTMENTS_LIST);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const isPast = appointment.status === 'completed' || appointment.status === 'cancelled';
+  const isInProgress = appointment.status === 'in_progress';
 
   return (
     <div className="bg-background-light font-display antialiased min-h-screen flex flex-col relative pb-safe">
@@ -382,7 +395,7 @@ export const AppointmentDetailScreen: React.FC<NavProps & { appointment: any, on
           </div>
         </div>
 
-        {!isPast && (
+        {!isPast && !isInProgress && (
           <div className="flex flex-col gap-3">
             <button
               onClick={() => onNavigate(ScreenName.CHAT, { id: appointment.doctorId, name: appointment.doctorName, image: appointment.image })}
@@ -399,28 +412,54 @@ export const AppointmentDetailScreen: React.FC<NavProps & { appointment: any, on
             </button>
           </div>
         )}
+
+        {isInProgress && (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+            <div className="flex items-center gap-2 text-orange-600 mb-2">
+              <span className="material-symbols-outlined">info</span>
+              <span className="font-bold">服务进行中</span>
+            </div>
+            <p className="text-sm text-orange-600/80">
+              您的预约正在进行中，无法取消。如有问题请联系医生。
+            </p>
+          </div>
+        )}
       </div>
 
       {showCancelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowCancelModal(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !cancelling && setShowCancelModal(false)}></div>
           <div className="relative bg-white rounded-3xl p-6 max-w-xs w-full animate-in fade-in zoom-in duration-200">
-            <h3 className="text-xl font-bold text-center mb-2">取消预约?</h3>
-            <p className="text-neutral-500 text-center text-sm mb-6">您确定要取消这次预约吗？此操作无法撤销。</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowCancelModal(false)}
-                className="flex-1 h-12 rounded-xl bg-neutral-100 text-neutral-700 font-bold text-sm hover:bg-neutral-200"
-              >
-                保留
-              </button>
-              <button
-                onClick={handleCancel}
-                className="flex-1 h-12 rounded-xl bg-red-500 text-white font-bold text-sm hover:bg-red-600 shadow-lg shadow-red-500/20"
-              >
-                是的，取消
-              </button>
-            </div>
+            {cancelling ? (
+              <div className="py-6 flex flex-col items-center gap-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
+                <p className="text-primary font-bold">正在取消预约...</p>
+                <p className="text-sm text-neutral-500">积分将自动退还到您的账户</p>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-xl font-bold text-center mb-2">取消预约?</h3>
+                <p className="text-neutral-500 text-center text-sm mb-2">您确定要取消这次预约吗？</p>
+                <p className="text-green-600 text-center text-sm mb-6 flex items-center justify-center gap-1">
+                  <span className="material-symbols-outlined text-sm">check_circle</span>
+                  积分将自动退还
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowCancelModal(false)}
+                    className="flex-1 h-12 rounded-xl bg-neutral-100 text-neutral-700 font-bold text-sm hover:bg-neutral-200"
+                  >
+                    保留
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    className="flex-1 h-12 rounded-xl bg-red-500 text-white font-bold text-sm hover:bg-red-600 shadow-lg shadow-red-500/20"
+                  >
+                    是的，取消
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

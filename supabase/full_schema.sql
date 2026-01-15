@@ -35,6 +35,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS sync_new_user ON auth.users;
 CREATE TRIGGER sync_new_user
 AFTER INSERT ON auth.users
 FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
@@ -88,6 +89,10 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     appointment_time TIME NOT NULL,
     status TEXT CHECK (status IN ('upcoming', 'in_progress', 'completed', 'cancelled')) DEFAULT 'upcoming',
     cost INTEGER DEFAULT 0,
+    start_time TIME,           -- 进行中开始时间
+    end_time TIME,             -- 进行中结束时间
+    admin_note TEXT,           -- 管理员备注
+    completed_at TIMESTAMP WITH TIME ZONE,  -- 完成时间
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
