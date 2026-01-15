@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ScreenName, IMAGES, Doctor } from '../types';
 import { doctorService } from '../src/services/doctorService';
+import { appointmentService } from '../src/services/appointmentService';
 
 interface NavProps {
   onNavigate: (screen: ScreenName, data?: any) => void;
@@ -450,14 +451,45 @@ export const BookingScreen: React.FC<NavProps & {
     const [selectedTime, setSelectedTime] = useState<string>('15:30');
     const [selectedPet, setSelectedPet] = useState<string>(pets.length > 0 ? pets[0].id : '');
     const [toast, setToast] = useState<{ show: boolean, message: string }>({ show: false, message: '' });
+    const [showPointsAnimation, setShowPointsAnimation] = useState(false);
+    const [animatingCost, setAnimatingCost] = useState(0);
+    const [bookedTimes, setBookedTimes] = useState<string[]>([]);
+    const [loadingSlots, setLoadingSlots] = useState(false);
+
+    const activeDoctor = doctor || { id: '', name: '莎拉·史密斯医生', image: IMAGES.drSarah, price: 300 };
+
+    // 获取医生在选定日期的已预约时间
+    useEffect(() => {
+      const fetchBookedSlots = async () => {
+        if (!activeDoctor.id) return;
+        
+        setLoadingSlots(true);
+        try {
+          // 将日期转换为 YYYY-MM-DD 格式
+          const dateStr = `2024-10-${selectedDate.padStart(2, '0')}`;
+          const slots = await appointmentService.getDoctorAppointmentsByDate(activeDoctor.id, dateStr);
+          // 提取已预约的时间（格式为 HH:MM）
+          const times = slots?.map((s: any) => {
+            const time = s.appointment_time;
+            return typeof time === 'string' ? time.slice(0, 5) : time;
+          }) || [];
+          setBookedTimes(times);
+        } catch (e) {
+          console.error('Failed to fetch booked slots:', e);
+          setBookedTimes([]);
+        } finally {
+          setLoadingSlots(false);
+        }
+      };
+
+      fetchBookedSlots();
+    }, [activeDoctor.id, selectedDate]);
 
     useEffect(() => {
       if (pets.length > 0 && !selectedPet) {
         setSelectedPet(pets[0].id);
       }
     }, [pets, selectedPet]);
-
-    const activeDoctor = doctor || { name: '莎拉·史密斯医生', image: IMAGES.drSarah, price: 300 };
 
     const getPetStatus = (petName: string) => {
       const activeApt = appointments.find(apt =>
@@ -485,8 +517,13 @@ export const BookingScreen: React.FC<NavProps & {
     ];
 
     const getSlotStatus = (time: string) => {
+      // 首先检查从数据库获取的已预约时间
+      if (bookedTimes.includes(time)) {
+        return 'full';
+      }
+      
+      // 同时检查本地状态（备用）
       const fullDate = `2024年10月${selectedDate}日`;
-      // Check availability against all appointments from all users
       const checkList = allAppointments.length > 0 ? allAppointments : appointments;
       const isBooked = checkList.some(apt =>
         apt.doctorName === activeDoctor.name &&
@@ -499,13 +536,24 @@ export const BookingScreen: React.FC<NavProps & {
 
     const morningSlots = ['09:00', '10:30', '11:00', '11:30'].map(time => ({
       time,
-      status: getSlotStatus(time)
+      status: loadingSlots ? 'loading' : getSlotStatus(time)
     }));
 
     const afternoonSlots = ['14:00', '15:30', '16:00', '17:30'].map(time => ({
       time,
-      status: getSlotStatus(time)
+      status: loadingSlots ? 'loading' : getSlotStatus(time)
     }));
+
+    // 如果当前选中的时间段已被预约，自动选择下一个可用的
+    useEffect(() => {
+      if (!loadingSlots && bookedTimes.includes(selectedTime)) {
+        const allSlots = ['09:00', '10:30', '11:00', '11:30', '14:00', '15:30', '16:00', '17:30'];
+        const availableSlot = allSlots.find(t => !bookedTimes.includes(t));
+        if (availableSlot) {
+          setSelectedTime(availableSlot);
+        }
+      }
+    }, [bookedTimes, loadingSlots, selectedTime]);
 
     useEffect(() => {
       if (toast.show) {
@@ -570,15 +618,54 @@ export const BookingScreen: React.FC<NavProps & {
         pet: petName
       };
 
-      if (onAddAppointment) {
-        onAddAppointment(appointmentData, cost);
-      }
+      // 触发积分扣除动画
+      setAnimatingCost(cost);
+      setShowPointsAnimation(true);
 
-      onNavigate(ScreenName.APPOINTMENT_DETAIL, appointmentData);
+      // 延迟执行预约和导航，让动画播放
+      setTimeout(() => {
+        if (onAddAppointment) {
+          onAddAppointment(appointmentData, cost);
+        }
+        setShowPointsAnimation(false);
+        onNavigate(ScreenName.APPOINTMENT_DETAIL, appointmentData);
+      }, 1500);
     };
 
     return (
       <div className="bg-background-light font-display text-primary antialiased min-h-screen flex flex-col relative pb-safe overflow-x-hidden">
+        {/* 积分扣除动画 */}
+        {showPointsAnimation && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="relative flex flex-col items-center animate-in zoom-in duration-300">
+              {/* 积分图标 */}
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-2xl shadow-amber-500/50 animate-pulse">
+                  <span className="material-symbols-outlined text-white text-5xl">toll</span>
+                </div>
+                {/* 飞出的积分粒子 */}
+                <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-300 animate-ping" />
+                <div className="absolute -bottom-1 -left-3 w-4 h-4 rounded-full bg-amber-400 animate-ping animation-delay-200" />
+                <div className="absolute top-1/2 -right-4 w-3 h-3 rounded-full bg-amber-500 animate-ping animation-delay-400" />
+              </div>
+              
+              {/* 扣除数字动画 */}
+              <div className="mt-6 text-center">
+                <div className="text-4xl font-black text-white animate-bounce">
+                  -{animatingCost}
+                </div>
+                <div className="text-sm text-white/80 mt-2 font-medium">积分扣除中...</div>
+              </div>
+
+              {/* 成功提示 */}
+              <div className="mt-8 flex items-center gap-2 text-green-400 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-700">
+                <span className="material-symbols-outlined animate-bounce">check_circle</span>
+                <span className="font-bold">支付成功</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {toast.show && (
           <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-[60] bg-black/80 text-white px-6 py-3 rounded-2xl backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-top-4 duration-300 w-max max-w-[90%]">
             <div className="flex items-center gap-2">
@@ -616,15 +703,18 @@ export const BookingScreen: React.FC<NavProps & {
           <div className="px-5 mb-8">
             <h2 className="text-[16px] font-bold mb-4 flex items-center gap-2">
               <span className="w-1 h-4 bg-primary rounded-full"></span>上午时段
+              {loadingSlots && <span className="ml-2 w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>}
             </h2>
             <div className="grid grid-cols-4 gap-3 mb-6">
               {morningSlots.map((slot) => (
                 <button
                   key={slot.time}
-                  disabled={slot.status === 'full'}
+                  disabled={slot.status === 'full' || slot.status === 'loading'}
                   onClick={() => setSelectedTime(slot.time)}
                   className={`relative py-3 rounded-[14px] text-[14px] font-bold transition-all text-center 
-                                    ${slot.status === 'full'
+                                    ${slot.status === 'loading'
+                      ? 'bg-neutral-50 text-neutral-300 cursor-wait animate-pulse'
+                      : slot.status === 'full'
                       ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
                       : selectedTime === slot.time
                         ? 'bg-primary text-white shadow-lg ring-2 ring-primary/20'
@@ -633,7 +723,7 @@ export const BookingScreen: React.FC<NavProps & {
                 >
                   {slot.time}
                   {slot.status === 'full' && (
-                    <span className="absolute -top-2 -right-2 bg-neutral-200 text-[9px] px-1.5 py-0.5 rounded text-neutral-500 font-bold">满</span>
+                    <span className="absolute -top-2 -right-2 bg-red-100 text-[9px] px-1.5 py-0.5 rounded text-red-500 font-bold">已约</span>
                   )}
                 </button>
               ))}
@@ -645,10 +735,12 @@ export const BookingScreen: React.FC<NavProps & {
               {afternoonSlots.map((slot) => (
                 <button
                   key={slot.time}
-                  disabled={slot.status === 'full'}
+                  disabled={slot.status === 'full' || slot.status === 'loading'}
                   onClick={() => setSelectedTime(slot.time)}
                   className={`relative py-3 rounded-[14px] text-[14px] font-bold transition-all text-center 
-                                    ${slot.status === 'full'
+                                    ${slot.status === 'loading'
+                      ? 'bg-neutral-50 text-neutral-300 cursor-wait animate-pulse'
+                      : slot.status === 'full'
                       ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
                       : selectedTime === slot.time
                         ? 'bg-primary text-white shadow-lg ring-2 ring-primary/20'
@@ -657,7 +749,7 @@ export const BookingScreen: React.FC<NavProps & {
                 >
                   {slot.time}
                   {slot.status === 'full' && (
-                    <span className="absolute -top-2 -right-2 bg-neutral-200 text-[9px] px-1.5 py-0.5 rounded text-neutral-500 font-bold">满</span>
+                    <span className="absolute -top-2 -right-2 bg-red-100 text-[9px] px-1.5 py-0.5 rounded text-red-500 font-bold">已约</span>
                   )}
                 </button>
               ))}

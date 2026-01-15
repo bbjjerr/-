@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { ScreenName } from '../types';
-import { adminService, type AdminDoctorRow, type AdminRedeemCodeRow, type AdminStats, type AdminUserRow, type AdminAppointmentRow, type AdminPetRow } from '../src/services/adminService';
+import { adminService, type AdminDoctorRow, type AdminRedeemCodeRow, type AdminStats, type AdminUserRow, type AdminAppointmentRow, type AdminPetRow, type MedicalRecord } from '../src/services/adminService';
 
 type NavProps = {
   onNavigate: (screen: ScreenName, data?: any) => void;
@@ -63,7 +63,20 @@ const ImageUploader: React.FC<{
 const UserCard: React.FC<{
   user: AdminUserRow;
   onManagePets: () => void;
-}> = ({ user, onManagePets }) => {
+  onUpdatePoints: (userId: string, delta: number) => Promise<void>;
+  updatingPoints?: boolean;
+}> = ({ user, onManagePets, onUpdatePoints, updatingPoints }) => {
+  const [showPointEditor, setShowPointEditor] = useState(false);
+  const [pointDelta, setPointDelta] = useState('');
+  
+  const handleAddPoints = async () => {
+    const delta = parseInt(pointDelta);
+    if (isNaN(delta) || delta === 0) return;
+    await onUpdatePoints(user.id, delta);
+    setPointDelta('');
+    setShowPointEditor(false);
+  };
+
   return (
     <div className="bg-white rounded-2xl p-4 border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3">
@@ -78,13 +91,56 @@ const UserCard: React.FC<{
             )}
           </div>
           <p className="text-xs text-neutral-400 truncate mt-0.5">{user.email}</p>
-          <div className="flex items-center gap-3 mt-2">
-            <div className="flex items-center gap-1">
+          
+          {/* 积分显示和管理 */}
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-lg">
               <span className="material-symbols-outlined text-amber-500 text-sm">toll</span>
               <span className="text-sm font-bold text-primary">{user.points}</span>
               <span className="text-xs text-neutral-400">积分</span>
             </div>
+            {!showPointEditor && (
+              <button
+                onClick={() => setShowPointEditor(true)}
+                className="flex items-center gap-0.5 text-xs text-primary/70 hover:text-primary font-medium"
+              >
+                <span className="material-symbols-outlined text-sm">edit</span>
+                调整
+              </button>
+            )}
           </div>
+
+          {/* 积分调整输入 */}
+          {showPointEditor && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex-1 relative">
+                <input
+                  type="number"
+                  placeholder="输入增减量（如 100 或 -50）"
+                  value={pointDelta}
+                  onChange={e => setPointDelta(e.target.value)}
+                  className="w-full h-9 rounded-lg bg-neutral-50 border border-neutral-200 px-3 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none"
+                />
+              </div>
+              <button
+                onClick={handleAddPoints}
+                disabled={updatingPoints || !pointDelta || parseInt(pointDelta) === 0}
+                className="h-9 px-3 rounded-lg bg-primary text-white text-xs font-bold disabled:opacity-50 flex items-center gap-1"
+              >
+                {updatingPoints ? (
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                ) : (
+                  <span className="material-symbols-outlined text-sm">check</span>
+                )}
+              </button>
+              <button
+                onClick={() => { setShowPointEditor(false); setPointDelta(''); }}
+                className="h-9 w-9 rounded-lg bg-neutral-100 text-neutral-500 flex items-center justify-center hover:bg-neutral-200"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-3 pt-3 border-t border-neutral-50">
@@ -104,9 +160,13 @@ const UserCard: React.FC<{
 const PetCard: React.FC<{
   pet: AdminPetRow;
   onDelete: () => void;
+  onEdit: () => void;
   onUpdateImage: (file: File) => Promise<void>;
   uploading?: boolean;
-}> = ({ pet, onDelete, onUpdateImage, uploading }) => {
+}> = ({ pet, onDelete, onEdit, onUpdateImage, uploading }) => {
+  const [showMedical, setShowMedical] = useState(false);
+  const medicalRecords = pet.medical_records || [];
+
   return (
     <div className="bg-white rounded-2xl p-4 border border-neutral-100 shadow-sm">
       <div className="flex gap-4">
@@ -143,12 +203,22 @@ const PetCard: React.FC<{
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <h4 className="font-bold text-primary text-base">{pet.name}</h4>
-            <button
-              onClick={onDelete}
-              className="w-7 h-7 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 transition-colors"
-            >
-              <span className="material-symbols-outlined text-sm">delete</span>
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={onEdit}
+                className="w-7 h-7 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center hover:bg-blue-100 transition-colors"
+                title="编辑宠物"
+              >
+                <span className="material-symbols-outlined text-sm">edit</span>
+              </button>
+              <button
+                onClick={onDelete}
+                className="w-7 h-7 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 transition-colors"
+                title="删除宠物"
+              >
+                <span className="material-symbols-outlined text-sm">delete</span>
+              </button>
+            </div>
           </div>
           <p className="text-xs text-neutral-500 mt-1">{pet.breed}</p>
           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -164,12 +234,71 @@ const PetCard: React.FC<{
             <span className="px-2 py-0.5 bg-green-50 text-green-600 text-[10px] font-bold rounded-full">
               {pet.weight}kg
             </span>
+            {medicalRecords.length > 0 && (
+              <span className="px-2 py-0.5 bg-pink-50 text-pink-600 text-[10px] font-bold rounded-full">
+                🩺 {medicalRecords.length}条记录
+              </span>
+            )}
           </div>
           {pet.description && (
             <p className="text-xs text-neutral-400 mt-2 line-clamp-2">{pet.description}</p>
           )}
         </div>
       </div>
+      
+      {/* 医疗记录展开/折叠 */}
+      {medicalRecords.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-neutral-50">
+          <button
+            onClick={() => setShowMedical(!showMedical)}
+            className="w-full flex items-center justify-between text-xs text-primary/70 hover:text-primary font-medium"
+          >
+            <span className="flex items-center gap-1">
+              <span className="material-symbols-outlined text-sm">medical_services</span>
+              医疗与护理记录
+            </span>
+            <span className="material-symbols-outlined text-sm transition-transform" style={{ transform: showMedical ? 'rotate(180deg)' : 'rotate(0)' }}>
+              expand_more
+            </span>
+          </button>
+          {showMedical && (
+            <div className="mt-2 space-y-2">
+              {medicalRecords.map((record, idx) => {
+                const colorMap: Record<string, string> = {
+                  blue: 'bg-blue-50 text-blue-600 border-blue-100',
+                  green: 'bg-green-50 text-green-600 border-green-100',
+                  amber: 'bg-amber-50 text-amber-600 border-amber-100',
+                  purple: 'bg-purple-50 text-purple-600 border-purple-100',
+                  pink: 'bg-pink-50 text-pink-600 border-pink-100',
+                };
+                const iconMap: Record<string, string> = {
+                  vaccines: '💉',
+                  healing: '❤️‍🩹',
+                  medication: '💊',
+                  ecg_heart: '🩺',
+                  cut: '✂️',
+                  restaurant: '🍖',
+                };
+                const colorClass = colorMap[record.color || 'blue'] || colorMap.blue;
+                const icon = iconMap[record.icon || 'vaccines'] || '💉';
+                
+                return (
+                  <div key={idx} className={`p-2 rounded-lg border ${colorClass}`}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-sm">{icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-xs">{record.title}</div>
+                        {record.subtitle && <div className="text-[10px] opacity-80">{record.subtitle}</div>}
+                        {record.date && <div className="text-[10px] opacity-60 mt-0.5">{record.date}</div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -193,21 +322,36 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
   const [uploadingPetId, setUploadingPetId] = useState<string | null>(null);
   const [showAddPet, setShowAddPet] = useState(false);
   const [newPetImageUploading, setNewPetImageUploading] = useState(false);
+  const [editingPet, setEditingPet] = useState<AdminPetRow | null>(null);
+  
+  // 积分管理
+  const [updatingPointsUserId, setUpdatingPointsUserId] = useState<string | null>(null);
 
   // 搜索
   const [userSearch, setUserSearch] = useState('');
 
   const [doctorDraft, setDoctorDraft] = useState({ name: '', title: '', image_url: '', price: 200, tags: '' });
   const [codeDraft, setCodeDraft] = useState({ code: '', points: 1000, max_uses: 1 });
-  const [petDraft, setPetDraft] = useState({
+  const [petDraft, setPetDraft] = useState<{
+    name: string;
+    breed: string;
+    pet_type: 'dog' | 'cat';
+    gender: 'male' | 'female';
+    age: number;
+    weight: number;
+    image_url: string;
+    description: string;
+    medical_records: MedicalRecord[];
+  }>({
     name: '',
     breed: '',
-    pet_type: 'dog' as 'dog' | 'cat',
-    gender: 'male' as 'male' | 'female',
+    pet_type: 'dog',
+    gender: 'male',
     age: 1,
     weight: 5,
     image_url: '',
-    description: ''
+    description: '',
+    medical_records: []
   });
 
   const tabs = useMemo(
@@ -337,6 +481,21 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
     }
   };
 
+  const handleUpdateUserPoints = async (userId: string, delta: number) => {
+    setUpdatingPointsUserId(userId);
+    try {
+      const updatedUser = await adminService.updateUserPoints(userId, delta);
+      // 更新本地用户列表
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, points: updatedUser.points } : u));
+      showToast(delta > 0 ? `已增加 ${delta} 积分` : `已扣除 ${Math.abs(delta)} 积分`);
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '更新积分失败', true);
+    } finally {
+      setUpdatingPointsUserId(null);
+    }
+  };
+
   const handleUploadNewPetImage = async (file: File) => {
     setNewPetImageUploading(true);
     try {
@@ -374,6 +533,9 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
     }
     setLoading(true);
     try {
+      // 过滤掉空的医疗记录
+      const validMedicalRecords = petDraft.medical_records.filter(r => r.title.trim() !== '');
+      
       await adminService.createPetForUser({
         userId: selectedUser.id,
         name: petDraft.name,
@@ -383,9 +545,10 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
         age: Number(petDraft.age) || 1,
         weight: Number(petDraft.weight) || 1,
         description: petDraft.description,
-        image_url: petDraft.image_url
+        image_url: petDraft.image_url,
+        medical_records: validMedicalRecords.length > 0 ? validMedicalRecords : undefined
       });
-      setPetDraft({ name: '', breed: '', pet_type: 'dog', gender: 'male', age: 1, weight: 5, image_url: '', description: '' });
+      setPetDraft({ name: '', breed: '', pet_type: 'dog', gender: 'male', age: 1, weight: 5, image_url: '', description: '', medical_records: [] });
       setShowAddPet(false);
       await loadUserPets(selectedUser);
       showToast('宠物添加成功');
@@ -418,7 +581,97 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
     setSelectedUser(null);
     setUserPets([]);
     setShowAddPet(false);
-    setPetDraft({ name: '', breed: '', pet_type: 'dog', gender: 'male', age: 1, weight: 5, image_url: '', description: '' });
+    setEditingPet(null);
+    setPetDraft({ name: '', breed: '', pet_type: 'dog', gender: 'male', age: 1, weight: 5, image_url: '', description: '', medical_records: [] });
+  };
+
+  // 开始编辑宠物
+  const startEditPet = (pet: AdminPetRow) => {
+    setEditingPet(pet);
+    setPetDraft({
+      name: pet.name,
+      breed: pet.breed,
+      pet_type: pet.pet_type,
+      gender: pet.gender,
+      age: pet.age,
+      weight: pet.weight,
+      image_url: pet.image_url || '',
+      description: pet.description || '',
+      medical_records: pet.medical_records || []
+    });
+    setShowAddPet(true);
+  };
+
+  // 保存编辑的宠物
+  const updatePetForUser = async () => {
+    if (!selectedUser || !editingPet) return;
+    if (!petDraft.name || !petDraft.breed) {
+      showToast('请填写宠物名称和品种', true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const validMedicalRecords = petDraft.medical_records.filter(r => r.title.trim() !== '');
+      
+      await adminService.updatePet(editingPet.id, {
+        name: petDraft.name,
+        breed: petDraft.breed,
+        pet_type: petDraft.pet_type,
+        gender: petDraft.gender,
+        age: Number(petDraft.age) || 1,
+        weight: Number(petDraft.weight) || 1,
+        description: petDraft.description,
+        image_url: petDraft.image_url,
+        medical_records: validMedicalRecords.length > 0 ? validMedicalRecords : null
+      });
+      setPetDraft({ name: '', breed: '', pet_type: 'dog', gender: 'male', age: 1, weight: 5, image_url: '', description: '', medical_records: [] });
+      setShowAddPet(false);
+      setEditingPet(null);
+      await loadUserPets(selectedUser);
+      showToast('宠物信息已更新');
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '更新宠物失败', true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 取消编辑
+  const cancelEditPet = () => {
+    setShowAddPet(false);
+    setEditingPet(null);
+    setPetDraft({ name: '', breed: '', pet_type: 'dog', gender: 'male', age: 1, weight: 5, image_url: '', description: '', medical_records: [] });
+  };
+
+  // 兑换码管理
+  const toggleCodeActive = async (codeId: string, isActive: boolean) => {
+    setLoading(true);
+    try {
+      await adminService.updateRedeemCode(codeId, { is_active: !isActive });
+      setCodes(prev => prev.map(c => c.id === codeId ? { ...c, is_active: !isActive } : c));
+      showToast(isActive ? '兑换码已禁用' : '兑换码已启用');
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '更新兑换码失败', true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteCode = async (codeId: string) => {
+    if (!confirm('确定要删除这个兑换码吗？')) return;
+    setLoading(true);
+    try {
+      await adminService.deleteRedeemCode(codeId);
+      setCodes(prev => prev.filter(c => c.id !== codeId));
+      showToast('兑换码已删除');
+    } catch (e: any) {
+      console.error(e);
+      showToast(e?.message || '删除兑换码失败', true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isAdmin) {
@@ -525,6 +778,8 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                   key={u.id}
                   user={u}
                   onManagePets={() => loadUserPets(u)}
+                  onUpdatePoints={handleUpdateUserPoints}
+                  updatingPoints={updatingPointsUserId === u.id}
                 />
               ))}
               {filteredUsers.length === 0 && (
@@ -572,8 +827,9 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                         key={pet.id}
                         pet={pet}
                         onDelete={() => deletePetForUser(pet.id)}
-                        onUploadImage={(file) => handleUpdatePetImage(pet.id, file)}
-                        isUploading={uploadingPetId === pet.id}
+                        onEdit={() => startEditPet(pet)}
+                        onUpdateImage={(file) => handleUpdatePetImage(pet.id, file)}
+                        uploading={uploadingPetId === pet.id}
                       />
                     ))}
                   </div>
@@ -584,10 +840,10 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                   </div>
                 )}
 
-                {/* 添加宠物按钮/表单 */}
+                {/* 添加/编辑宠物按钮/表单 */}
                 {!showAddPet ? (
                   <button
-                    onClick={() => setShowAddPet(true)}
+                    onClick={() => { setEditingPet(null); setShowAddPet(true); }}
                     className="w-full h-12 rounded-2xl border-2 border-dashed border-primary/30 text-primary font-bold flex items-center justify-center gap-2 hover:bg-primary/5 transition-colors"
                   >
                     <span className="material-symbols-outlined">add</span>
@@ -596,9 +852,9 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                 ) : (
                   <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-2xl p-4 space-y-3 border border-primary/10">
                     <div className="flex items-center justify-between mb-1">
-                      <h4 className="font-bold text-primary text-sm">添加新宠物</h4>
+                      <h4 className="font-bold text-primary text-sm">{editingPet ? '编辑宠物' : '添加新宠物'}</h4>
                       <button 
-                        onClick={() => setShowAddPet(false)}
+                        onClick={cancelEditPet}
                         className="text-neutral-400 hover:text-neutral-600"
                       >
                         <span className="material-symbols-outlined text-lg">close</span>
@@ -610,8 +866,7 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                       <ImageUploader
                         currentImage={petDraft.image_url || undefined}
                         onUpload={handleUploadNewPetImage}
-                        isUploading={newPetImageUploading}
-                        size="lg"
+                        uploading={newPetImageUploading}
                       />
                     </div>
 
@@ -674,8 +929,116 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                       value={petDraft.description} 
                       onChange={e => setPetDraft(d => ({ ...d, description: e.target.value }))} 
                     />
+
+                    {/* 医疗与护理记录 */}
+                    <div className="bg-white rounded-xl border border-neutral-200 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-primary flex items-center gap-1">
+                          <span className="material-symbols-outlined text-base">medical_services</span>
+                          医疗与护理记录
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPetDraft(d => ({
+                            ...d,
+                            medical_records: [...d.medical_records, { title: '', subtitle: '', date: '', icon: 'vaccines', color: 'blue' }]
+                          }))}
+                          className="text-xs text-primary/70 hover:text-primary font-medium flex items-center gap-0.5"
+                        >
+                          <span className="material-symbols-outlined text-sm">add</span>
+                          添加记录
+                        </button>
+                      </div>
+                      
+                      {petDraft.medical_records.length === 0 ? (
+                        <p className="text-xs text-neutral-400 text-center py-3">暂无医疗记录，点击上方添加</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {petDraft.medical_records.map((record, idx) => (
+                            <div key={idx} className="bg-neutral-50 rounded-lg p-2 space-y-1.5">
+                              <div className="flex gap-2">
+                                <select
+                                  value={record.icon || 'vaccines'}
+                                  onChange={e => {
+                                    const newRecords = [...petDraft.medical_records];
+                                    newRecords[idx] = { ...newRecords[idx], icon: e.target.value };
+                                    setPetDraft(d => ({ ...d, medical_records: newRecords }));
+                                  }}
+                                  className="h-8 w-28 rounded-lg bg-white border border-neutral-200 px-2 text-xs font-medium focus:border-primary outline-none"
+                                >
+                                  <option value="vaccines">💉 疫苗</option>
+                                  <option value="healing">❤️‍🩹 治疗</option>
+                                  <option value="medication">💊 药物</option>
+                                  <option value="ecg_heart">🩺 检查</option>
+                                  <option value="cut">✂️ 美容</option>
+                                  <option value="restaurant">🍖 饮食</option>
+                                </select>
+                                <select
+                                  value={record.color || 'blue'}
+                                  onChange={e => {
+                                    const newRecords = [...petDraft.medical_records];
+                                    newRecords[idx] = { ...newRecords[idx], color: e.target.value };
+                                    setPetDraft(d => ({ ...d, medical_records: newRecords }));
+                                  }}
+                                  className="h-8 w-20 rounded-lg bg-white border border-neutral-200 px-2 text-xs font-medium focus:border-primary outline-none"
+                                >
+                                  <option value="blue">蓝色</option>
+                                  <option value="green">绿色</option>
+                                  <option value="amber">橙色</option>
+                                  <option value="purple">紫色</option>
+                                  <option value="pink">粉色</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newRecords = petDraft.medical_records.filter((_, i) => i !== idx);
+                                    setPetDraft(d => ({ ...d, medical_records: newRecords }));
+                                  }}
+                                  className="ml-auto w-7 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100"
+                                >
+                                  <span className="material-symbols-outlined text-sm">delete</span>
+                                </button>
+                              </div>
+                              <input
+                                type="text"
+                                placeholder="标题（如：狂犬疫苗）"
+                                value={record.title}
+                                onChange={e => {
+                                  const newRecords = [...petDraft.medical_records];
+                                  newRecords[idx] = { ...newRecords[idx], title: e.target.value };
+                                  setPetDraft(d => ({ ...d, medical_records: newRecords }));
+                                }}
+                                className="w-full h-8 rounded-lg bg-white border border-neutral-200 px-3 text-xs font-medium focus:border-primary outline-none"
+                              />
+                              <input
+                                type="text"
+                                placeholder="描述（如：已完成三针）"
+                                value={record.subtitle}
+                                onChange={e => {
+                                  const newRecords = [...petDraft.medical_records];
+                                  newRecords[idx] = { ...newRecords[idx], subtitle: e.target.value };
+                                  setPetDraft(d => ({ ...d, medical_records: newRecords }));
+                                }}
+                                className="w-full h-8 rounded-lg bg-white border border-neutral-200 px-3 text-xs font-medium focus:border-primary outline-none"
+                              />
+                              <input
+                                type="date"
+                                value={record.date || ''}
+                                onChange={e => {
+                                  const newRecords = [...petDraft.medical_records];
+                                  newRecords[idx] = { ...newRecords[idx], date: e.target.value };
+                                  setPetDraft(d => ({ ...d, medical_records: newRecords }));
+                                }}
+                                className="w-full h-8 rounded-lg bg-white border border-neutral-200 px-3 text-xs font-medium focus:border-primary outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <button 
-                      onClick={savePetForUser} 
+                      onClick={editingPet ? updatePetForUser : savePetForUser} 
                       disabled={loading || !petDraft.name || !petDraft.breed}
                       className="w-full h-12 rounded-xl bg-gradient-to-r from-primary to-accent text-white font-bold shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
@@ -687,7 +1050,7 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                       ) : (
                         <>
                           <span className="material-symbols-outlined text-lg">check</span>
-                          确认添加
+                          {editingPet ? '保存修改' : '确认添加'}
                         </>
                       )}
                     </button>
@@ -752,12 +1115,34 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
         {tab === 'redeem' && (
           <>
             <div className="bg-white rounded-3xl p-4 border border-neutral-100 shadow-sm mb-4">
-              <div className="font-black text-primary mb-3">新增兑换码（MVP）</div>
+              <div className="font-black text-primary mb-3">新增兑换码</div>
               <div className="space-y-3">
                 <input className="w-full h-12 rounded-2xl bg-neutral-50 border border-neutral-200 px-4 text-sm font-bold" placeholder="兑换码（如 WELCOME2026）" value={codeDraft.code} onChange={e => setCodeDraft(d => ({ ...d, code: e.target.value }))} />
-                <input className="w-full h-12 rounded-2xl bg-neutral-50 border border-neutral-200 px-4 text-sm font-bold" placeholder="积分" value={codeDraft.points} onChange={e => setCodeDraft(d => ({ ...d, points: Number(e.target.value) }))} />
-                <input className="w-full h-12 rounded-2xl bg-neutral-50 border border-neutral-200 px-4 text-sm font-bold" placeholder="最大使用次数" value={codeDraft.max_uses} onChange={e => setCodeDraft(d => ({ ...d, max_uses: Number(e.target.value) }))} />
-                <button onClick={saveCode} className="w-full h-12 rounded-2xl bg-primary text-white font-black">保存兑换码</button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      className="w-full h-12 rounded-2xl bg-neutral-50 border border-neutral-200 px-4 pr-12 text-sm font-bold" 
+                      placeholder="积分" 
+                      value={codeDraft.points} 
+                      onChange={e => setCodeDraft(d => ({ ...d, points: Number(e.target.value) }))} 
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-neutral-400">积分</span>
+                  </div>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      className="w-full h-12 rounded-2xl bg-neutral-50 border border-neutral-200 px-4 pr-12 text-sm font-bold" 
+                      placeholder="次数限制" 
+                      value={codeDraft.max_uses} 
+                      onChange={e => setCodeDraft(d => ({ ...d, max_uses: Number(e.target.value) }))} 
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-neutral-400">次</span>
+                  </div>
+                </div>
+                <button onClick={saveCode} disabled={loading || !codeDraft.code} className="w-full h-12 rounded-2xl bg-primary text-white font-black disabled:opacity-50">
+                  {loading ? '保存中...' : '保存兑换码'}
+                </button>
               </div>
             </div>
 
@@ -765,17 +1150,60 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
               <div className="font-black text-primary mb-3">兑换码列表</div>
               <div className="space-y-3">
                 {codes.map(c => (
-                  <div key={c.id} className="flex items-center justify-between border-b border-neutral-50 pb-3 last:border-0 last:pb-0">
-                    <div className="min-w-0">
-                      <div className="font-black text-primary text-sm truncate">{c.code}</div>
-                      <div className="text-xs text-neutral-400">{c.current_uses}/{c.max_uses} · {c.is_active ? '启用' : '禁用'}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-black text-primary">+{c.points}</div>
+                  <div key={c.id} className="bg-neutral-50 rounded-2xl p-3 border border-neutral-100">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-black text-primary text-sm truncate">{c.code}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_active ? 'bg-green-100 text-green-600' : 'bg-neutral-200 text-neutral-500'}`}>
+                            {c.is_active ? '启用' : '禁用'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-neutral-500">
+                          <span className="flex items-center gap-1">
+                            <span className="material-symbols-outlined text-amber-500 text-sm">toll</span>
+                            <strong className="text-primary">+{c.points}</strong>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="material-symbols-outlined text-blue-500 text-sm">group</span>
+                            {c.current_uses}/{c.max_uses}
+                          </span>
+                        </div>
+                        {/* 使用进度条 */}
+                        <div className="mt-2 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all ${c.current_uses >= c.max_uses ? 'bg-red-400' : 'bg-green-400'}`}
+                            style={{ width: `${Math.min(100, (c.current_uses / c.max_uses) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {/* 启用/禁用开关 */}
+                        <button
+                          onClick={() => toggleCodeActive(c.id, c.is_active)}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${c.is_active ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-neutral-200 text-neutral-500 hover:bg-neutral-300'}`}
+                          title={c.is_active ? '禁用' : '启用'}
+                        >
+                          <span className="material-symbols-outlined text-sm">{c.is_active ? 'toggle_on' : 'toggle_off'}</span>
+                        </button>
+                        {/* 删除按钮 */}
+                        <button
+                          onClick={() => deleteCode(c.id)}
+                          className="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 transition-colors"
+                          title="删除"
+                        >
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
-                {codes.length === 0 && <div className="text-sm text-neutral-400">暂无数据</div>}
+                {codes.length === 0 && (
+                  <div className="text-center py-8 text-neutral-400">
+                    <span className="material-symbols-outlined text-4xl mb-2 opacity-30">redeem</span>
+                    <p className="text-sm">暂无兑换码</p>
+                  </div>
+                )}
               </div>
             </div>
           </>

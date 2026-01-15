@@ -10,6 +10,16 @@
 ALTER TABLE public.users
 ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;
 
+-- 1.1) point_history 表：添加类型和描述字段（用于显示详细的积分变动原因）
+ALTER TABLE public.point_history
+ADD COLUMN IF NOT EXISTS description TEXT;
+
+ALTER TABLE public.point_history
+ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'other';
+
+ALTER TABLE public.point_history
+ADD COLUMN IF NOT EXISTS amount INTEGER DEFAULT 0;
+
 -- 2) 管理员判定函数（供 RLS policy 复用）
 -- SECURITY DEFINER：用于在 RLS 中安全地读取 users.is_admin
 CREATE OR REPLACE FUNCTION public.is_admin(uid uuid)
@@ -28,6 +38,27 @@ CREATE POLICY "Admins can view all users"
 ON public.users
 FOR SELECT
 USING (public.is_admin(auth.uid()));
+
+-- 3.1) RLS: 管理员可更新全部用户（用于积分管理等）
+DROP POLICY IF EXISTS "Admins can update all users" ON public.users;
+CREATE POLICY "Admins can update all users"
+ON public.users
+FOR UPDATE
+USING (public.is_admin(auth.uid()))
+WITH CHECK (public.is_admin(auth.uid()));
+
+-- 3.2) RLS: 管理员可查看/插入全部积分历史（用于积分管理审计）
+DROP POLICY IF EXISTS "Admins can view all point history" ON public.point_history;
+CREATE POLICY "Admins can view all point history"
+ON public.point_history
+FOR SELECT
+USING (public.is_admin(auth.uid()));
+
+DROP POLICY IF EXISTS "Admins can insert point history" ON public.point_history;
+CREATE POLICY "Admins can insert point history"
+ON public.point_history
+FOR INSERT
+WITH CHECK (public.is_admin(auth.uid()));
 
 -- 4) RLS: 管理员可管理医生
 DROP POLICY IF EXISTS "Admins can insert doctors" ON public.doctors;

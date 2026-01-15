@@ -63,7 +63,16 @@ export type AdminPetRow = {
   description?: string | null;
   image_url?: string | null;
   avatar_url?: string | null;
+  medical_records?: MedicalRecord[] | null;
   created_at?: string;
+};
+
+export type MedicalRecord = {
+  title: string;
+  subtitle: string;
+  date?: string;
+  icon?: string;
+  color?: string;
 };
 
 type EmbeddedOne<T> = T | T[] | null | undefined;
@@ -193,7 +202,7 @@ export const adminService = {
   async listPetsByUser(userId: string, limit = 50): Promise<AdminPetRow[]> {
     const { data, error } = await supabase
       .from('pets')
-      .select('id,user_id,name,breed,pet_type,gender,age,weight,description,image_url,avatar_url,created_at')
+      .select('id,user_id,name,breed,pet_type,gender,age,weight,description,image_url,avatar_url,medical_records,created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -212,6 +221,7 @@ export const adminService = {
     weight: number;
     description?: string;
     image_url?: string;
+    medical_records?: MedicalRecord[];
   }) {
     const payload = {
       user_id: input.userId,
@@ -223,7 +233,8 @@ export const adminService = {
       weight: input.weight,
       description: input.description || null,
       image_url: input.image_url || null,
-      avatar_url: input.image_url || null
+      avatar_url: input.image_url || null,
+      medical_records: input.medical_records || null
     };
 
     const { data, error } = await supabase.from('pets').insert([payload]).select().single();
@@ -263,5 +274,102 @@ export const adminService = {
 
     if (error) throw error;
     return data as AdminPetRow;
+  },
+
+  // =============================================
+  // 用户积分管理
+  // =============================================
+  
+  // 更新用户积分（增加或减少）
+  async updateUserPoints(userId: string, pointsDelta: number, reason?: string) {
+    // 先获取当前积分
+    const { data: user, error: fetchError } = await supabase
+      .from('users')
+      .select('points')
+      .eq('id', userId)
+      .single();
+    
+    if (fetchError) throw fetchError;
+    
+    const newPoints = Math.max(0, (user.points || 0) + pointsDelta);
+    
+    // 更新积分
+    const { data, error: updateError } = await supabase
+      .from('users')
+      .update({ points: newPoints })
+      .eq('id', userId)
+      .select()
+      .single();
+    
+    if (updateError) throw updateError;
+
+    // 记录积分变动历史
+    if (pointsDelta !== 0) {
+      await supabase.from('point_history').insert([{
+        user_id: userId,
+        amount: pointsDelta,
+        type: pointsDelta > 0 ? 'admin_add' : 'admin_deduct',
+        description: reason || (pointsDelta > 0 ? '管理员添加积分' : '管理员扣除积分')
+      }]);
+    }
+
+    return data as AdminUserRow;
+  },
+
+  // 设置用户积分（直接设置为指定值）
+  async setUserPoints(userId: string, points: number, reason?: string) {
+    const { data: user, error: fetchError } = await supabase
+      .from('users')
+      .select('points')
+      .eq('id', userId)
+      .single();
+    
+    if (fetchError) throw fetchError;
+    
+    const pointsDelta = points - (user.points || 0);
+    
+    const { data, error: updateError } = await supabase
+      .from('users')
+      .update({ points: Math.max(0, points) })
+      .eq('id', userId)
+      .select()
+      .single();
+    
+    if (updateError) throw updateError;
+
+    // 记录积分变动历史
+    if (pointsDelta !== 0) {
+      await supabase.from('point_history').insert([{
+        user_id: userId,
+        amount: pointsDelta,
+        type: 'admin_set',
+        description: reason || `管理员设置积分为 ${points}`
+      }]);
+    }
+
+    return data as AdminUserRow;
+  },
+
+  // 更新兑换码（包括使用次数限制）
+  async updateRedeemCode(codeId: string, updates: Partial<AdminRedeemCodeRow>) {
+    const { data, error } = await supabase
+      .from('redeem_codes')
+      .update(updates)
+      .eq('id', codeId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as AdminRedeemCodeRow;
+  },
+
+  // 删除兑换码
+  async deleteRedeemCode(codeId: string) {
+    const { error } = await supabase
+      .from('redeem_codes')
+      .delete()
+      .eq('id', codeId);
+
+    if (error) throw error;
   }
 };

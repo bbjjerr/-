@@ -388,26 +388,57 @@ export const PetProfileScreen: React.FC<NavProps & { pets?: any[] }> = ({ onNavi
         <div className="px-6 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-primary text-lg font-bold leading-tight">医疗与护理</h3>
-            <button className="text-sm font-semibold text-neutral-400 hover:text-primary transition-colors">查看全部</button>
+            {activePet.medical && activePet.medical.length > 3 && (
+              <button className="text-sm font-semibold text-neutral-400 hover:text-primary transition-colors">查看全部</button>
+            )}
           </div>
           <div className="flex flex-col gap-3">
-            {activePet.medical && activePet.medical.map((item: any, index: number) => (
-              <div key={index} className="group flex items-center justify-between gap-4 rounded-2xl bg-white p-4 shadow-sm border border-neutral-100 transition-all hover:shadow-md cursor-pointer animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: `${index * 100}ms` }}>
-                <div className="flex items-center gap-4">
-                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${item.color}`}>
-                    <span className="material-symbols-outlined">{item.icon}</span>
+            {activePet.medical && activePet.medical.length > 0 ? activePet.medical.map((item: any, index: number) => {
+              // 支持数据库格式和本地格式的医疗记录
+              const iconMap: Record<string, string> = {
+                vaccines: 'vaccines',
+                healing: 'healing',
+                medication: 'medication',
+                ecg_heart: 'ecg_heart',
+                cut: 'content_cut',
+                restaurant: 'restaurant',
+              };
+              const colorMap: Record<string, string> = {
+                blue: 'bg-blue-50 text-blue-600',
+                green: 'bg-green-50 text-green-600',
+                amber: 'bg-amber-50 text-amber-600',
+                purple: 'bg-purple-50 text-purple-600',
+                pink: 'bg-pink-50 text-pink-600',
+              };
+              
+              // 根据记录格式解析图标和颜色
+              const icon = item.icon ? iconMap[item.icon] || item.icon : 'medical_services';
+              const colorClass = item.color ? colorMap[item.color] || colorMap.blue : (item.color || 'bg-neutral-100 text-primary');
+              
+              return (
+                <div key={index} className="group flex items-center justify-between gap-4 rounded-2xl bg-white p-4 shadow-sm border border-neutral-100 transition-all hover:shadow-md cursor-pointer animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: `${index * 100}ms` }}>
+                  <div className="flex items-center gap-4">
+                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${colorClass}`}>
+                      <span className="material-symbols-outlined">{icon}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <p className="text-primary text-base font-bold leading-tight">{item.title}</p>
+                      <p className="text-neutral-500 text-sm font-medium mt-1">{item.subtitle}</p>
+                      {item.date && (
+                        <p className="text-neutral-400 text-xs mt-1 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-xs">schedule</span>
+                          {item.date}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex flex-col">
-                    <p className="text-primary text-base font-bold leading-tight">{item.title}</p>
-                    <p className="text-neutral-500 text-sm font-medium mt-1">{item.subtitle}</p>
-                  </div>
+                  <span className="material-symbols-outlined text-neutral-300 group-hover:translate-x-1 transition-transform">chevron_right</span>
                 </div>
-                <span className="material-symbols-outlined text-neutral-300 group-hover:translate-x-1 transition-transform">chevron_right</span>
-              </div>
-            ))}
-            {(!activePet.medical || activePet.medical.length === 0) && (
+              );
+            }) : (
                  <div className="text-center py-6 text-neutral-400 bg-white rounded-2xl border border-neutral-50 border-dashed">
-                     暂无医疗记录
+                     <span className="material-symbols-outlined text-3xl mb-2 opacity-30">medical_services</span>
+                     <p>暂无医疗记录</p>
                  </div>
             )}
           </div>
@@ -657,11 +688,31 @@ export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; point
             <div className="overflow-y-auto flex-1 -mx-2 px-2">
                {historyData.length > 0 ? historyData.map((item) => (
                  <div key={item.id} className="flex items-center justify-between py-4 border-b border-neutral-50 last:border-0">
-                    <div>
-                      <p className="font-bold text-primary text-sm">{item.title}</p>
-                      <p className="text-xs text-neutral-400 mt-1">{item.date}</p>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                        item.points.startsWith('+') 
+                          ? 'bg-green-50 text-green-600' 
+                          : 'bg-red-50 text-red-600'
+                      }`}>
+                        <span className="material-symbols-outlined text-lg">
+                          {item.type === 'redeem' ? 'redeem' : 
+                           item.type === 'consume' ? 'shopping_cart' :
+                           item.type === 'admin_add' ? 'add_circle' :
+                           item.type === 'admin_deduct' ? 'remove_circle' :
+                           item.type === 'admin_set' ? 'settings' :
+                           item.type === 'refund' ? 'replay' :
+                           item.points.startsWith('+') ? 'add' : 'remove'}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-primary text-sm">{item.title}</p>
+                        {item.description && (
+                          <p className="text-xs text-neutral-500 mt-0.5">{item.description}</p>
+                        )}
+                        <p className="text-xs text-neutral-400 mt-0.5">{item.date}</p>
+                      </div>
                     </div>
-                    <span className={`font-bold ${item.points.startsWith('+') ? 'text-green-600' : 'text-primary'}`}>{item.points}</span>
+                    <span className={`font-bold text-base ${item.points.startsWith('+') ? 'text-green-600' : 'text-red-500'}`}>{item.points}</span>
                  </div>
                )) : <div className="text-center py-8 text-neutral-400">暂无积分记录</div>}
             </div>

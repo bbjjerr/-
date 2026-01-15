@@ -1,11 +1,26 @@
 import { supabase } from './supabaseClient';
 
+export type PointHistoryType = 'redeem' | 'consume' | 'admin_add' | 'admin_deduct' | 'admin_set' | 'refund' | 'other';
+
 export interface PointHistoryItem {
     id: number | string;
     title: string;
+    description?: string;
+    type?: PointHistoryType;
     points: string; // "+100" or "-50"
     date: string;
 }
+
+// 积分历史类型的中文映射
+export const pointHistoryTypeLabels: Record<PointHistoryType, string> = {
+    redeem: '兑换码兑换',
+    consume: '积分消费',
+    admin_add: '管理员添加',
+    admin_deduct: '管理员扣除',
+    admin_set: '管理员设置',
+    refund: '退款返还',
+    other: '其他'
+};
 
 export const pointService = {
     // 获取用户积分
@@ -26,13 +41,15 @@ export const pointService = {
             .from('point_history')
             .select('*')
             .eq('user_id', userId)
-            .order('transaction_date', { ascending: false });
+            .order('created_at', { ascending: false });
 
         if (error) throw error;
 
         return data.map((item: any) => ({
             id: item.id,
-            title: item.title,
+            title: item.title || pointHistoryTypeLabels[item.type as PointHistoryType] || '积分变动',
+            description: item.description,
+            type: item.type,
             points: item.points > 0 ? `+${item.points}` : `${item.points}`,
             date: item.transaction_date
         }));
@@ -75,8 +92,11 @@ export const pointService = {
         await supabase.from('point_history').insert([{
             user_id: userId,
             title: '积分兑换码',
+            description: `兑换码: ${code}`,
+            type: 'redeem',
+            amount: codeData.points,
             points: codeData.points,
-            transaction_date: new Date().toISOString()
+            transaction_date: new Date().toISOString().split('T')[0]
         }]);
 
         // Step C: Increment usage

@@ -14,7 +14,7 @@ export interface Appointment {
 }
 
 export const appointmentService = {
-    // 创建预约
+    // 创建预约（包含积分扣除）
     async createAppointment(appointmentData: {
         userId: string;
         doctorId: string;
@@ -25,6 +25,21 @@ export const appointmentService = {
         service: string;
         cost: number;
     }) {
+        // 1. 先获取用户当前积分
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('points')
+            .eq('id', appointmentData.userId)
+            .single();
+
+        if (userError) throw userError;
+
+        const currentPoints = userData.points || 0;
+        if (currentPoints < appointmentData.cost) {
+            throw new Error('积分不足');
+        }
+
+        // 2. 创建预约记录
         const { data, error } = await supabase
             .from('appointments')
             .insert([
@@ -44,6 +59,30 @@ export const appointmentService = {
             .single();
 
         if (error) throw error;
+
+        // 3. 扣除用户积分
+        const newPoints = currentPoints - appointmentData.cost;
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ points: newPoints })
+            .eq('id', appointmentData.userId);
+
+        if (updateError) {
+            console.error('扣除积分失败:', updateError);
+            // 预约已创建，但积分扣除失败，记录错误但不回滚
+        }
+
+        // 4. 记录积分历史
+        await supabase.from('point_history').insert([{
+            user_id: appointmentData.userId,
+            title: '预约医生',
+            description: `预约服务: ${appointmentData.service}`,
+            type: 'consume',
+            amount: -appointmentData.cost,
+            points: -appointmentData.cost,
+            transaction_date: new Date().toISOString().split('T')[0]
+        }]);
+
         return data;
     },
 
