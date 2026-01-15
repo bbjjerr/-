@@ -59,6 +59,19 @@ export const DoctorSearchScreen: React.FC<NavProps> = ({ onNavigate }) => {
           <h1 className="text-[28px] font-black tracking-tight text-primary leading-[1.2]">
             欢迎来到<br />宠物医院
           </h1>
+          <p className="text-neutral-500 text-sm mt-2">为您的爱宠提供专业医疗服务</p>
+        </div>
+
+        {/* 搜索栏 */}
+        <div className="mb-6">
+          <div className="flex items-center gap-3 bg-neutral-50 rounded-2xl px-4 h-12 border border-neutral-100">
+            <span className="material-symbols-outlined text-neutral-400">search</span>
+            <input 
+              type="text" 
+              placeholder="搜索医生、服务..."
+              className="flex-1 bg-transparent text-sm font-medium outline-none placeholder-neutral-400"
+            />
+          </div>
         </div>
 
         {/* Categories */}
@@ -79,32 +92,45 @@ export const DoctorSearchScreen: React.FC<NavProps> = ({ onNavigate }) => {
       </div>
 
       <div className="px-6 pt-6">
-        <h2 className="text-[15px] font-bold mb-5 text-neutral-800 tracking-wide ml-1">
-          附近医生
-        </h2>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[15px] font-bold text-neutral-800 tracking-wide ml-1">
+            附近医生
+          </h2>
+          <span className="text-xs text-neutral-400">{filteredDoctors.length} 位医生</span>
+        </div>
 
         <div className="flex flex-col gap-4">
-          {filteredDoctors.map(doctor => (
+          {filteredDoctors.map((doctor, index) => (
             <div
               key={doctor.id}
               onClick={() => onNavigate(ScreenName.DOCTOR_DETAIL, doctor)}
-              className="bg-white p-3.5 rounded-[24px] shadow-sm border border-neutral-50 flex gap-4 transition-all hover:shadow-md active:scale-[0.98] cursor-pointer items-center"
+              className="bg-white p-4 rounded-[24px] shadow-sm border border-neutral-50 flex gap-4 transition-all hover:shadow-lg hover:border-neutral-100 active:scale-[0.98] cursor-pointer items-center animate-in fade-in slide-in-from-bottom-2 duration-300"
+              style={{ animationDelay: `${index * 50}ms` }}
             >
-              <div className="shrink-0">
+              <div className="shrink-0 relative">
                 <img src={doctor.image} alt={doctor.name} className="w-[88px] h-[88px] rounded-[20px] object-cover bg-neutral-100 shadow-sm" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                  <span className="material-symbols-outlined text-white text-xs">check</span>
+                </div>
               </div>
               <div className="flex-1 min-w-0 py-1">
                 <h3 className="font-bold text-[17px] text-primary leading-tight truncate mb-1">{doctor.name}</h3>
                 <p className="text-[11px] text-neutral-400 font-medium mb-2.5">{doctor.title}</p>
 
-                <div className="flex items-center gap-1.5 mb-2.5">
-                  <span className="material-symbols-outlined text-amber-400 text-[18px] material-symbols-filled">star</span>
-                  <span className="text-[13px] font-bold text-primary">{doctor.rating}</span>
-                  <span className="text-[11px] text-neutral-400 ml-0.5 font-medium tracking-tight">(120+ 评价)</span>
+                <div className="flex items-center gap-3 mb-2.5">
+                  <div className="flex items-center gap-1">
+                    <span className="material-symbols-outlined text-amber-400 text-[18px] material-symbols-filled">star</span>
+                    <span className="text-[13px] font-bold text-primary">{doctor.rating}</span>
+                  </div>
+                  <span className="text-[11px] text-neutral-400 font-medium tracking-tight">(120+ 评价)</span>
+                  <div className="ml-auto flex items-center gap-1 text-primary">
+                    <span className="material-symbols-outlined text-sm">toll</span>
+                    <span className="text-sm font-bold">¥{doctor.price}</span>
+                  </div>
                 </div>
 
-                <div className="flex gap-2">
-                  {doctor.tags.map(tag => (
+                <div className="flex gap-2 flex-wrap">
+                  {doctor.tags.slice(0, 3).map(tag => (
                     <span key={tag} className="px-2.5 py-1 bg-neutral-50 text-neutral-500 rounded-lg text-[10px] font-bold border border-neutral-100">{tag}</span>
                   ))}
                 </div>
@@ -113,6 +139,7 @@ export const DoctorSearchScreen: React.FC<NavProps> = ({ onNavigate }) => {
           ))}
           {filteredDoctors.length === 0 && (
             <div className="py-10 text-center text-neutral-400">
+              <span className="material-symbols-outlined text-4xl mb-2 opacity-30">search_off</span>
               <p>该分类下暂无医生</p>
             </div>
           )}
@@ -263,47 +290,82 @@ export const AppointmentsListScreen: React.FC<NavProps & { appointmentsList?: an
             <p>暂无预约记录</p>
           </div>
         ) : (
-          displayedList.map(apt => (
-            <div
-              key={apt.id}
-              onClick={() => onNavigate(ScreenName.APPOINTMENT_DETAIL, apt)}
-              className="bg-white p-5 rounded-2xl shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-neutral-100 active:scale-[0.99] transition-transform"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex gap-3">
-                  <img src={apt.image} alt={apt.doctorName} className="w-12 h-12 rounded-xl object-cover bg-neutral-100" />
-                  <div>
-                    <h3 className="font-bold text-primary">{apt.doctorName}</h3>
-                    <p className="text-xs text-neutral-500 mt-0.5">{apt.service}</p>
+          displayedList.map((apt, index) => {
+            const isInProgress = apt.status === 'in_progress';
+            const isUpcoming = apt.status === 'upcoming';
+            
+            return (
+              <div
+                key={apt.id}
+                onClick={() => onNavigate(ScreenName.APPOINTMENT_DETAIL, apt)}
+                className={`bg-white p-5 rounded-2xl shadow-[0_2px_15px_rgba(0,0,0,0.03)] border active:scale-[0.99] transition-all animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+                  isInProgress ? 'border-orange-200 bg-gradient-to-r from-orange-50 to-white' :
+                  isUpcoming ? 'border-blue-200' : 'border-neutral-100'
+                }`}
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                {/* 状态指示条 */}
+                <div className={`h-1 rounded-full mb-4 ${
+                  apt.status === 'upcoming' ? 'bg-blue-400' :
+                  apt.status === 'in_progress' ? 'bg-orange-400' :
+                  apt.status === 'completed' ? 'bg-green-400' :
+                  'bg-neutral-300'
+                }`} />
+                
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex gap-3">
+                    <img src={apt.image} alt={apt.doctorName} className="w-14 h-14 rounded-xl object-cover bg-neutral-100 shadow-sm" />
+                    <div>
+                      <h3 className="font-bold text-primary text-base">{apt.doctorName}</h3>
+                      <p className="text-xs text-neutral-500 mt-0.5">{apt.service}</p>
+                      {apt.cost && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="material-symbols-outlined text-amber-500 text-xs">toll</span>
+                          <span className="text-xs font-bold text-primary">¥{apt.cost}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className={`px-3 py-1.5 rounded-lg text-[11px] font-bold
+                    ${apt.status === 'upcoming' ? 'bg-blue-50 text-blue-600' :
+                      apt.status === 'completed' ? 'bg-green-50 text-green-600' :
+                        apt.status === 'in_progress' ? 'bg-orange-50 text-orange-600' :
+                          'bg-neutral-100 text-neutral-500'}`
+                  }>
+                    {apt.status === 'upcoming' ? '即将开始' :
+                      apt.status === 'completed' ? '已完成' :
+                        apt.status === 'in_progress' ? '进行中' : '已取消'}
                   </div>
                 </div>
-                <div className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide
-                  ${apt.status === 'upcoming' ? 'bg-blue-50 text-blue-600' :
-                    apt.status === 'completed' ? 'bg-green-50 text-green-600' :
-                      apt.status === 'in_progress' ? 'bg-amber-50 text-amber-600' :
-                        'bg-neutral-100 text-neutral-500'}`
-                }>
-                  {apt.status === 'upcoming' ? '即将开始' :
-                    apt.status === 'completed' ? '已完成' :
-                      apt.status === 'in_progress' ? '进行中' : '已取消'}
+                
+                {/* 进行中提示 */}
+                {isInProgress && (
+                  <div className="mb-4 p-3 bg-orange-50 rounded-xl border border-orange-100">
+                    <div className="flex items-center gap-2 text-orange-600">
+                      <span className="material-symbols-outlined text-lg animate-pulse">play_circle</span>
+                      <span className="text-sm font-bold">服务正在进行中</span>
+                    </div>
+                    <p className="text-xs text-orange-500/80 mt-1">请留意医生消息，有任何问题可随时沟通</p>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-4 pt-4 border-t border-neutral-50">
+                  <div className="flex items-center gap-1.5 text-neutral-600">
+                    <span className="material-symbols-outlined text-[18px] text-neutral-400">calendar_today</span>
+                    <span className="text-xs font-bold">{apt.date}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-neutral-600">
+                    <span className="material-symbols-outlined text-[18px] text-neutral-400">schedule</span>
+                    <span className="text-xs font-bold">{String(apt.time).slice(0, 5)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-neutral-600 ml-auto">
+                    <span className="material-symbols-outlined text-[18px] text-neutral-400">pets</span>
+                    <span className="text-xs font-bold">{apt.pet}</span>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-4 pt-4 border-t border-neutral-50">
-                <div className="flex items-center gap-1.5 text-neutral-600">
-                  <span className="material-symbols-outlined text-[18px] text-neutral-400">calendar_today</span>
-                  <span className="text-xs font-bold">{apt.date}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-neutral-600">
-                  <span className="material-symbols-outlined text-[18px] text-neutral-400">schedule</span>
-                  <span className="text-xs font-bold">{apt.time}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-neutral-600 ml-auto">
-                  <span className="material-symbols-outlined text-[18px] text-neutral-400">pets</span>
-                  <span className="text-xs font-bold">{apt.pet}</span>
-                </div>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

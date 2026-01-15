@@ -40,6 +40,20 @@ export type AdminRedeemCodeRow = {
   created_at?: string;
 };
 
+export type MemberLevelRow = {
+  id: string;
+  level_order: number;
+  name: string;
+  min_points: number;
+  max_points: number | null;
+  icon: string;
+  color_from: string;
+  color_to: string;
+  card_bg: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type AdminAppointmentRow = {
   id: string;
   user_id?: string;
@@ -533,5 +547,54 @@ export const adminService = {
       .eq('id', codeId);
 
     if (error) throw error;
+  },
+
+  // ==================== 会员等级管理 ====================
+
+  // 获取所有会员等级配置
+  async listMemberLevels(): Promise<MemberLevelRow[]> {
+    const { data, error } = await supabase
+      .from('member_levels')
+      .select('*')
+      .order('level_order', { ascending: true });
+
+    if (error) throw error;
+    return (data || []) as MemberLevelRow[];
+  },
+
+  // 更新会员等级配置
+  async updateMemberLevel(id: string, updates: Partial<MemberLevelRow>): Promise<MemberLevelRow> {
+    const { data, error } = await supabase
+      .from('member_levels')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as MemberLevelRow;
+  },
+
+  // 批量更新会员等级（用于调整积分范围）
+  async updateMemberLevels(levels: Array<{ id: string; min_points: number; max_points: number | null; name?: string }>): Promise<MemberLevelRow[]> {
+    const results: MemberLevelRow[] = [];
+    
+    for (const level of levels) {
+      const { data, error } = await supabase
+        .from('member_levels')
+        .update({ 
+          min_points: level.min_points, 
+          max_points: level.max_points,
+          ...(level.name ? { name: level.name } : {})
+        })
+        .eq('id', level.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      results.push(data as MemberLevelRow);
+    }
+
+    return results;
   }
 };

@@ -122,6 +122,38 @@ export const authService = {
         return data;
     },
 
+    // 更新用户档案
+    async updateUserProfile(userId: string, updates: { name?: string; avatar_url?: string }): Promise<UserProfile | null> {
+        const { data, error } = await supabase
+            .from('users')
+            .update(updates)
+            .eq('id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    // 上传用户头像
+    async uploadAvatar(userId: string, file: File): Promise<string> {
+        const ext = file.name.split('.').pop();
+        const fileName = `${userId}-${Date.now()}.${ext}`;
+        const filePath = `avatars/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('pet-images')
+            .upload(filePath, file, { upsert: true });
+
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage
+            .from('pet-images')
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
+    },
+
     // 监听状态变化
     onAuthStateChange(callback: (event: string, session: any) => void) {
         return supabase.auth.onAuthStateChange(callback);

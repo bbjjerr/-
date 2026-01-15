@@ -416,7 +416,7 @@ const App: React.FC = () => {
       {currentScreen === ScreenName.CHAT && <ChatScreen onNavigate={navigate} userId={user?.id} chatId={selectedChatId} doctor={selectedDoctor} backScreen={chatBackScreen} onUpdateLastMessage={handleUpdateLastMessage} />}
       {currentScreen === ScreenName.CHAT_LIST && <ChatListScreen onNavigate={navigate} chats={chats} appointments={appointments} onMarkAsRead={handleMarkAsRead} />}
       {currentScreen === ScreenName.PET_PROFILE && <PetProfileScreen onNavigate={navigate} pets={pets} />}
-      {currentScreen === ScreenName.USER_PROFILE && <UserProfileScreen onNavigate={navigate} user={user} userPoints={userPoints} pointHistory={pointHistory} onRedeem={handleRedeemPoints} onLogout={handleLogout} />}
+      {currentScreen === ScreenName.USER_PROFILE && <UserProfileScreen onNavigate={navigate} user={user} userPoints={userPoints} pointHistory={pointHistory} onRedeem={handleRedeemPoints} onLogout={handleLogout} onUserUpdate={loadUserData} />}
       {currentScreen === ScreenName.ADMIN && <AdminScreen onNavigate={navigate} isAdmin={Boolean(user?.is_admin)} />}
 
       {showBottomNav && (

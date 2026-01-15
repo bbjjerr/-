@@ -159,6 +159,42 @@ CREATE TABLE IF NOT EXISTS public.redeem_codes (
 
 CREATE INDEX IF NOT EXISTS idx_redeem_codes_code ON public.redeem_codes(code);
 
+-- 9. 会员等级配置表 (member_levels)
+CREATE TABLE IF NOT EXISTS public.member_levels (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    level_order INTEGER NOT NULL UNIQUE,           -- 等级顺序 (1-6)
+    name TEXT NOT NULL,                            -- 等级名称
+    min_points INTEGER NOT NULL,                   -- 最低积分
+    max_points INTEGER,                            -- 最高积分 (最高等级可为null)
+    icon TEXT NOT NULL DEFAULT 'person',           -- 图标名称
+    color_from TEXT NOT NULL DEFAULT 'neutral-400', -- 渐变起始色
+    color_to TEXT NOT NULL DEFAULT 'neutral-500',   -- 渐变结束色
+    card_bg TEXT NOT NULL DEFAULT '#141414',        -- 卡片背景色
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_member_levels_order ON public.member_levels(level_order);
+CREATE INDEX IF NOT EXISTS idx_member_levels_points ON public.member_levels(min_points);
+
+-- 初始化会员等级数据
+INSERT INTO public.member_levels (level_order, name, min_points, max_points, icon, color_from, color_to, card_bg)
+VALUES 
+(1, '普通会员', 0, 999, 'person', 'neutral-400', 'neutral-500', '#141414'),
+(2, '青铜会员', 1000, 4999, 'shield', 'orange-400', 'orange-600', '#1a1210'),
+(3, '黄金会员', 5000, 9999, 'stars', 'yellow-400', 'amber-500', '#1a1408'),
+(4, '铂金会员', 10000, 19999, 'workspace_premium', 'slate-300', 'slate-400', '#1a1a2e'),
+(5, '钻石会员', 20000, 99999, 'diamond', 'cyan-400', 'blue-500', '#0a1628'),
+(6, '尊贵会员', 100000, NULL, 'diamond', 'purple-600', 'pink-500', '#1a0a2e')
+ON CONFLICT (level_order) DO UPDATE SET
+  name = EXCLUDED.name,
+  min_points = EXCLUDED.min_points,
+  max_points = EXCLUDED.max_points,
+  icon = EXCLUDED.icon,
+  color_from = EXCLUDED.color_from,
+  color_to = EXCLUDED.color_to,
+  card_bg = EXCLUDED.card_bg;
+
 -- 触发器函数：更新 updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -177,6 +213,9 @@ CREATE TRIGGER update_pets_updated_at BEFORE UPDATE ON public.pets FOR EACH ROW 
 
 DROP TRIGGER IF EXISTS update_appointments_updated_at ON public.appointments;
 CREATE TRIGGER update_appointments_updated_at BEFORE UPDATE ON public.appointments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_member_levels_updated_at ON public.member_levels;
+CREATE TRIGGER update_member_levels_updated_at BEFORE UPDATE ON public.member_levels FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =============================================
 -- 第二部分：初始化数据填充 (Seed Data)
@@ -250,6 +289,7 @@ ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.point_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.redeem_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_levels ENABLE ROW LEVEL SECURITY;
 
 -- 1. Users 表策略
 DROP POLICY IF EXISTS "Users can view own data" ON public.users;
@@ -324,6 +364,10 @@ CREATE POLICY "Users can insert own point history" ON public.point_history FOR I
 -- 7. Redeem Codes 表策略
 DROP POLICY IF EXISTS "Anyone can view active redeem codes" ON public.redeem_codes;
 CREATE POLICY "Anyone can view active redeem codes" ON public.redeem_codes FOR SELECT USING (true);
+
+-- 8. Member Levels 表策略 (所有人可读)
+DROP POLICY IF EXISTS "Anyone can view member levels" ON public.member_levels;
+CREATE POLICY "Anyone can view member levels" ON public.member_levels FOR SELECT USING (true);
 
 
 -- =============================================

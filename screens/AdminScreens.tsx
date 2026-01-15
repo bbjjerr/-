@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { ScreenName } from '../types';
-import { adminService, type AdminDoctorRow, type AdminRedeemCodeRow, type AdminStats, type AdminUserRow, type AdminAppointmentRow, type AdminPetRow, type MedicalRecord } from '../src/services/adminService';
+import { adminService, type AdminDoctorRow, type AdminRedeemCodeRow, type AdminStats, type AdminUserRow, type AdminAppointmentRow, type AdminPetRow, type MedicalRecord, type MemberLevelRow } from '../src/services/adminService';
 
 type NavProps = {
   onNavigate: (screen: ScreenName, data?: any) => void;
 };
 
-type TabKey = 'overview' | 'users' | 'doctors' | 'appointments' | 'redeem';
+type TabKey = 'overview' | 'users' | 'doctors' | 'appointments' | 'redeem' | 'levels';
 
 // 图片上传组件
 const ImageUploader: React.FC<{
@@ -332,6 +332,11 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
   const [completionNote, setCompletionNote] = useState('');
   const [appointmentFilter, setAppointmentFilter] = useState<'all' | 'upcoming' | 'in_progress' | 'completed' | 'cancelled'>('all');
   
+  // 会员等级管理
+  const [memberLevels, setMemberLevels] = useState<MemberLevelRow[]>([]);
+  const [editingLevels, setEditingLevels] = useState<MemberLevelRow[]>([]);
+  const [savingLevels, setSavingLevels] = useState(false);
+  
   // 积分管理
   const [updatingPointsUserId, setUpdatingPointsUserId] = useState<string | null>(null);
 
@@ -368,7 +373,8 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
       { key: 'users' as const, label: '用户', icon: 'group' },
       { key: 'doctors' as const, label: '医生', icon: 'medical_services' },
       { key: 'appointments' as const, label: '预约', icon: 'calendar_month' },
-      { key: 'redeem' as const, label: '兑换码', icon: 'redeem' }
+      { key: 'redeem' as const, label: '兑换码', icon: 'redeem' },
+      { key: 'levels' as const, label: '等级', icon: 'military_tech' }
     ],
     []
   );
@@ -433,17 +439,20 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
       const base = await adminService.getStats();
       setStats(base);
 
-      const [u, d, a, r] = await Promise.all([
+      const [u, d, a, r, levels] = await Promise.all([
         adminService.listUsers(50),
         adminService.listDoctors(50),
         adminService.listAppointments(50),
-        adminService.listRedeemCodes(50)
+        adminService.listRedeemCodes(50),
+        adminService.listMemberLevels()
       ]);
 
       setUsers(u);
       setDoctors(d);
       setAppointments(a);
       setCodes(r);
+      setMemberLevels(levels);
+      setEditingLevels(levels.map(l => ({ ...l })));
     } catch (e: any) {
       console.error(e);
       setError(e?.message || '加载后台数据失败（可能是 RLS 权限未开）');
@@ -1676,6 +1685,167 @@ export const AdminScreen: React.FC<NavProps & { isAdmin?: boolean }> = ({ onNavi
                     <p className="text-sm">暂无兑换码</p>
                   </div>
                 )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* 会员等级管理 */}
+        {tab === 'levels' && (
+          <>
+            <div className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-bold text-primary text-lg">会员等级配置</h2>
+                <button
+                  onClick={async () => {
+                    if (savingLevels) return;
+                    setSavingLevels(true);
+                    try {
+                      // 验证积分范围
+                      const sorted = [...editingLevels].sort((a, b) => a.level_order - b.level_order);
+                      for (let i = 0; i < sorted.length; i++) {
+                        if (i > 0 && sorted[i].min_points <= sorted[i - 1].min_points) {
+                          throw new Error(`${sorted[i].name} 的最低积分必须大于 ${sorted[i - 1].name}`);
+                        }
+                        if (sorted[i].max_points !== null && sorted[i].max_points! < sorted[i].min_points) {
+                          throw new Error(`${sorted[i].name} 的最高积分不能小于最低积分`);
+                        }
+                      }
+
+                      await adminService.updateMemberLevels(
+                        editingLevels.map(l => ({
+                          id: l.id,
+                          min_points: l.min_points,
+                          max_points: l.max_points,
+                          name: l.name
+                        }))
+                      );
+                      showToast('等级配置已保存');
+                      refresh();
+                    } catch (e: any) {
+                      showToast(e?.message || '保存失败', true);
+                    } finally {
+                      setSavingLevels(false);
+                    }
+                  }}
+                  disabled={savingLevels}
+                  className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {savingLevels ? (
+                    <>
+                      <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                      保存中
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">save</span>
+                      保存配置
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {editingLevels.sort((a, b) => a.level_order - b.level_order).map((level, index) => {
+                  const colorMap: Record<string, string> = {
+                    'person': 'bg-neutral-100 text-neutral-500',
+                    'shield': 'bg-orange-100 text-orange-500',
+                    'stars': 'bg-yellow-100 text-yellow-600',
+                    'workspace_premium': 'bg-slate-100 text-slate-500',
+                    'diamond': level.color_from.includes('cyan') ? 'bg-cyan-100 text-cyan-500' : 'bg-purple-100 text-purple-500',
+                  };
+                  
+                  return (
+                    <div 
+                      key={level.id}
+                      className="flex items-center gap-4 p-4 bg-neutral-50 rounded-2xl border border-neutral-100"
+                    >
+                      {/* 等级图标 */}
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorMap[level.icon] || 'bg-neutral-100 text-neutral-500'}`}>
+                        <span className="material-symbols-outlined text-2xl">{level.icon}</span>
+                      </div>
+                      
+                      {/* 等级信息 */}
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* 等级名称 */}
+                        <div>
+                          <label className="text-[10px] text-neutral-400 font-bold uppercase">等级名称</label>
+                          <input
+                            type="text"
+                            value={level.name}
+                            onChange={e => {
+                              const newLevels = editingLevels.map(l => 
+                                l.id === level.id ? { ...l, name: e.target.value } : l
+                              );
+                              setEditingLevels(newLevels);
+                            }}
+                            className="w-full h-9 rounded-lg bg-white border border-neutral-200 px-3 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none"
+                          />
+                        </div>
+                        
+                        {/* 最低积分 */}
+                        <div>
+                          <label className="text-[10px] text-neutral-400 font-bold uppercase">最低积分</label>
+                          <input
+                            type="number"
+                            value={level.min_points}
+                            onChange={e => {
+                              const newLevels = editingLevels.map(l => 
+                                l.id === level.id ? { ...l, min_points: parseInt(e.target.value) || 0 } : l
+                              );
+                              setEditingLevels(newLevels);
+                            }}
+                            min={0}
+                            className="w-full h-9 rounded-lg bg-white border border-neutral-200 px-3 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none"
+                          />
+                        </div>
+                        
+                        {/* 最高积分 */}
+                        <div>
+                          <label className="text-[10px] text-neutral-400 font-bold uppercase">
+                            最高积分 {index === editingLevels.length - 1 && <span className="text-neutral-300">(最高等级无上限)</span>}
+                          </label>
+                          <input
+                            type="number"
+                            value={level.max_points ?? ''}
+                            onChange={e => {
+                              const value = e.target.value ? parseInt(e.target.value) : null;
+                              const newLevels = editingLevels.map(l => 
+                                l.id === level.id ? { ...l, max_points: value } : l
+                              );
+                              setEditingLevels(newLevels);
+                            }}
+                            min={level.min_points}
+                            placeholder="无上限"
+                            disabled={index === editingLevels.length - 1}
+                            className="w-full h-9 rounded-lg bg-white border border-neutral-200 px-3 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none disabled:bg-neutral-100 disabled:text-neutral-400"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* 等级序号 */}
+                      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0">
+                        {level.level_order}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* 提示信息 */}
+              <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-amber-500 text-lg shrink-0">info</span>
+                  <div className="text-xs text-amber-700">
+                    <div className="font-bold mb-1">配置说明</div>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li>每个等级的最低积分必须大于上一等级</li>
+                      <li>最高等级的最高积分留空表示无上限</li>
+                      <li>修改后需点击"保存配置"才能生效</li>
+                      <li>用户端会实时显示最新的等级配置</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           </>

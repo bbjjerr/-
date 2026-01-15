@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { IMAGES, ScreenName } from '../types';
 import { chatService, type Message as DbMessage } from '../src/services/chatService';
+import { authService } from '../src/services/authService';
+import { adminService, type MemberLevelRow } from '../src/services/adminService';
 
 interface NavProps {
   onNavigate: (screen: ScreenName, data?: any) => void;
@@ -344,8 +346,32 @@ export const ChatScreen: React.FC<NavProps & { userId?: string; chatId?: string 
 
       {/* Input Area */}
       <footer className="flex-none bg-white p-4 pb-8 sticky bottom-0 z-50 border-t border-neutral-50">
+        {/* 快捷操作 */}
+        <div className="flex gap-2 mb-3 overflow-x-auto hide-scrollbar">
+          <button 
+            onClick={() => setInputValue('您好，我想咨询一下预约的情况')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-50 hover:bg-neutral-100 rounded-full text-xs font-medium text-neutral-600 whitespace-nowrap transition-colors"
+          >
+            <span className="material-symbols-outlined text-sm">waving_hand</span>
+            打个招呼
+          </button>
+          <button 
+            onClick={() => setInputValue('请问我的预约什么时候开始？')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-full text-xs font-medium text-blue-600 whitespace-nowrap transition-colors"
+          >
+            <span className="material-symbols-outlined text-sm">schedule</span>
+            咨询预约
+          </button>
+          <button 
+            onClick={() => setInputValue('我想了解一下宠物的健康状况')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 hover:bg-green-100 rounded-full text-xs font-medium text-green-600 whitespace-nowrap transition-colors"
+          >
+            <span className="material-symbols-outlined text-sm">pets</span>
+            宠物健康
+          </button>
+        </div>
+        
         <div className="flex items-center gap-3">
-           {/* Removed Image button and Send button */}
            <div className="flex-1 bg-neutral-50 rounded-[24px] h-14 flex items-center px-5 gap-3 transition-all duration-300 focus-within:bg-white focus-within:shadow-[0_4px_20px_rgba(0,0,0,0.08)] focus-within:ring-1 focus-within:ring-neutral-200 border border-transparent focus-within:border-neutral-100">
               <input 
                 type="text" 
@@ -355,10 +381,23 @@ export const ChatScreen: React.FC<NavProps & { userId?: string; chatId?: string 
                 className="flex-1 bg-transparent border-none outline-none text-primary placeholder-neutral-400 text-[15px] font-medium"
                 placeholder="发送消息..." 
               />
-              <button className="text-neutral-400 hover:text-primary transition-colors">
-                 <span className="material-symbols-outlined text-[24px]">mic</span>
-              </button>
            </div>
+           {/* 发送按钮 */}
+           <button 
+             onClick={handleSendMessage}
+             disabled={!inputValue.trim() || isSending}
+             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+               inputValue.trim() 
+                 ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105 active:scale-95' 
+                 : 'bg-neutral-100 text-neutral-400'
+             }`}
+           >
+             {isSending ? (
+               <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></span>
+             ) : (
+               <span className="material-symbols-outlined text-[22px]">send</span>
+             )}
+           </button>
         </div>
       </footer>
     </div>
@@ -555,18 +594,118 @@ export const PetProfileScreen: React.FC<NavProps & { pets?: any[] }> = ({ onNavi
   );
 };
 
-export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; pointHistory?: any[]; onRedeem?: (code: string) => Promise<boolean>, user?: any, onLogout?: () => void }> = ({ onNavigate, userPoints = 0, pointHistory, onRedeem, user, onLogout }) => {
+// 从数据库等级配置计算当前等级
+const getMemberLevelFromConfig = (points: number, levels: MemberLevelRow[]) => {
+  // 按等级顺序排序
+  const sortedLevels = [...levels].sort((a, b) => b.level_order - a.level_order);
+  
+  // 找到当前等级
+  const currentLevel = sortedLevels.find(l => points >= l.min_points) || sortedLevels[sortedLevels.length - 1];
+  
+  // 找到下一等级
+  const currentIndex = sortedLevels.findIndex(l => l.id === currentLevel?.id);
+  const nextLevel = currentIndex > 0 ? sortedLevels[currentIndex - 1] : null;
+  
+  // 计算进度
+  let progress = 100;
+  if (nextLevel && currentLevel) {
+    const range = nextLevel.min_points - currentLevel.min_points;
+    const current = points - currentLevel.min_points;
+    progress = Math.min((current / range) * 100, 100);
+  }
+  
+  if (!currentLevel) {
+    return {
+      name: '普通会员',
+      icon: 'person',
+      color: 'from-neutral-400 to-neutral-500',
+      textColor: 'text-neutral-400',
+      bgColor: 'bg-neutral-400',
+      badgeColor: 'bg-gradient-to-r from-neutral-400 to-neutral-500',
+      progressColor: 'from-neutral-400 to-neutral-500',
+      cardBg: 'bg-gradient-to-br from-[#141414] via-[#1f1f1f] to-[#141414]',
+      nextLevel: null,
+      nextPoints: null,
+      progress: 0,
+      allLevels: levels,
+    };
+  }
+  
+  return {
+    name: currentLevel.name,
+    icon: currentLevel.icon,
+    color: `from-${currentLevel.color_from} to-${currentLevel.color_to}`,
+    textColor: `text-${currentLevel.color_from}`,
+    bgColor: `bg-${currentLevel.color_from}`,
+    badgeColor: `bg-gradient-to-r from-${currentLevel.color_from} to-${currentLevel.color_to}`,
+    progressColor: `from-${currentLevel.color_from} to-${currentLevel.color_to}`,
+    cardBg: `bg-[${currentLevel.card_bg}]`,
+    nextLevel: nextLevel?.name || null,
+    nextPoints: nextLevel?.min_points || null,
+    progress,
+    allLevels: levels,
+    currentLevelOrder: currentLevel.level_order,
+  };
+};
+
+// 默认会员等级配置（当数据库未配置时使用）
+const defaultMemberLevels: MemberLevelRow[] = [
+  { id: '1', level_order: 1, name: '普通会员', min_points: 0, max_points: 999, icon: 'person', color_from: 'neutral-400', color_to: 'neutral-500', card_bg: '#141414' },
+  { id: '2', level_order: 2, name: '青铜会员', min_points: 1000, max_points: 4999, icon: 'shield', color_from: 'orange-400', color_to: 'orange-600', card_bg: '#1a1210' },
+  { id: '3', level_order: 3, name: '黄金会员', min_points: 5000, max_points: 9999, icon: 'stars', color_from: 'yellow-400', color_to: 'amber-500', card_bg: '#1a1408' },
+  { id: '4', level_order: 4, name: '铂金会员', min_points: 10000, max_points: 19999, icon: 'workspace_premium', color_from: 'slate-300', color_to: 'slate-400', card_bg: '#1a1a2e' },
+  { id: '5', level_order: 5, name: '钻石会员', min_points: 20000, max_points: 99999, icon: 'diamond', color_from: 'cyan-400', color_to: 'blue-500', card_bg: '#0a1628' },
+  { id: '6', level_order: 6, name: '尊贵会员', min_points: 100000, max_points: null, icon: 'diamond', color_from: 'purple-600', color_to: 'pink-500', card_bg: '#1a0a2e' },
+];
+
+export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; pointHistory?: any[]; onRedeem?: (code: string) => Promise<boolean>, user?: any, onLogout?: () => void, onUserUpdate?: () => void }> = ({ onNavigate, userPoints = 0, pointHistory, onRedeem, user, onLogout, onUserUpdate }) => {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showLevelPathModal, setShowLevelPathModal] = useState(false);
   const [redeemCode, setRedeemCode] = useState('');
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', isError: false });
+  
+  // 会员等级配置
+  const [memberLevels, setMemberLevels] = useState<MemberLevelRow[]>(defaultMemberLevels);
+  const [isLoadingLevels, setIsLoadingLevels] = useState(true);
+  
+  // 编辑用户信息
+  const [editName, setEditName] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const defaultHistory: any[] = [];
   const historyData = pointHistory || defaultHistory;
   
   const currentUser = user || { name: '访客', avatar: '', joinedDate: '今天' };
+  const memberLevel = getMemberLevelFromConfig(userPoints, memberLevels);
+
+  // 加载会员等级配置
+  useEffect(() => {
+    const loadLevels = async () => {
+      try {
+        const levels = await adminService.listMemberLevels();
+        if (levels.length > 0) {
+          setMemberLevels(levels);
+        }
+      } catch (e) {
+        console.error('Failed to load member levels:', e);
+      } finally {
+        setIsLoadingLevels(false);
+      }
+    };
+    loadLevels();
+  }, []);
+
+  useEffect(() => {
+    if (showEditModal) {
+      setEditName(currentUser.name || '');
+    }
+  }, [showEditModal, currentUser.name]);
 
   useEffect(() => {
     if (toast.show) {
@@ -574,6 +713,46 @@ export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; point
       return () => clearTimeout(timer);
     }
   }, [toast.show]);
+
+  const handleAvatarClick = () => {
+    avatarInputRef.current?.click();
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user?.id) return;
+    
+    setIsUploadingAvatar(true);
+    try {
+      const url = await authService.uploadAvatar(user.id, file);
+      await authService.updateUserProfile(user.id, { avatar_url: url });
+      setToast({ show: true, message: '头像更新成功', isError: false });
+      if (onUserUpdate) onUserUpdate();
+    } catch (e: any) {
+      console.error(e);
+      setToast({ show: true, message: e?.message || '上传失败', isError: true });
+    } finally {
+      setIsUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleUpdateName = async () => {
+    if (!editName.trim() || !user?.id) return;
+    
+    setIsUpdating(true);
+    try {
+      await authService.updateUserProfile(user.id, { name: editName.trim() });
+      setToast({ show: true, message: '昵称更新成功', isError: false });
+      setShowEditModal(false);
+      if (onUserUpdate) onUserUpdate();
+    } catch (e: any) {
+      console.error(e);
+      setToast({ show: true, message: e?.message || '更新失败', isError: true });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const handleRedeem = async () => {
     if (!redeemCode.trim() || isRedeeming) return;
@@ -629,42 +808,98 @@ export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; point
           </button>
         </div>
         <div className="flex flex-col items-center pt-2 pb-8 px-6">
-          <div className="relative group cursor-pointer">
-            <div className="w-28 h-28 rounded-full bg-cover bg-center border-4 border-white shadow-lg relative overflow-hidden bg-neutral-200" style={{ backgroundImage: currentUser.avatar ? `url('${currentUser.avatar}')` : 'none' }}>
-                {!currentUser.avatar && <span className="material-symbols-outlined text-4xl text-neutral-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">person</span>}
+          {/* 隐藏的文件输入 */}
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
+          
+          <div className="relative group cursor-pointer" onClick={handleAvatarClick}>
+            <div className={`w-28 h-28 rounded-full bg-cover bg-center border-4 border-white shadow-lg relative overflow-hidden bg-neutral-200 ${isUploadingAvatar ? 'opacity-50' : ''}`} style={{ backgroundImage: currentUser.avatar_url ? `url('${currentUser.avatar_url}')` : 'none' }}>
+                {!currentUser.avatar_url && <span className="material-symbols-outlined text-4xl text-neutral-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">person</span>}
             </div>
-            <div className="absolute bottom-1 right-1 bg-accent-gold text-white rounded-full p-1.5 border-2 border-white shadow-sm flex items-center justify-center">
-              <span className="material-symbols-outlined text-[14px] font-bold">edit</span>
+            {isUploadingAvatar && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent"></div>
+              </div>
+            )}
+            <div className="absolute bottom-1 right-1 bg-accent-gold text-white rounded-full p-1.5 border-2 border-white shadow-sm flex items-center justify-center hover:scale-110 transition-transform">
+              <span className="material-symbols-outlined text-[14px] font-bold">photo_camera</span>
             </div>
           </div>
           <div className="mt-4 text-center">
-            <h1 className="text-2xl font-bold text-primary tracking-tight">{currentUser.name}</h1>
-            <p className="text-neutral-500 text-sm font-medium mt-1">高级会员 · {currentUser.joinedDate}加入</p>
+            <div className="flex items-center justify-center gap-2">
+              <h1 className="text-2xl font-bold text-primary tracking-tight">{currentUser.name}</h1>
+              <button 
+                onClick={() => setShowEditModal(true)}
+                className="p-1.5 rounded-full hover:bg-neutral-100 transition-colors"
+              >
+                <span className="material-symbols-outlined text-neutral-400 hover:text-primary text-lg">edit</span>
+              </button>
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold text-white ${memberLevel.badgeColor}`}>
+                <span className="material-symbols-outlined text-sm">{memberLevel.icon}</span>
+                {memberLevel.name}
+              </span>
+            </div>
           </div>
         </div>
         <div className="px-6 pb-8">
-          <div className="relative w-full overflow-hidden rounded-3xl bg-[#141414] text-white shadow-xl transform transition-transform hover:scale-[1.01] duration-300">
-            <div className="absolute -top-12 -right-12 w-48 h-48 bg-accent-gold/20 rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-accent-gold/10 rounded-full blur-2xl"></div>
-            <div className="relative p-6 flex flex-col justify-between h-full min-h-[180px]">
+          <div className={`relative w-full overflow-hidden rounded-3xl text-white shadow-xl transform transition-transform hover:scale-[1.01] duration-300 ${memberLevel.cardBg}`}>
+            <div className={`absolute -top-12 -right-12 w-48 h-48 bg-gradient-to-br ${memberLevel.color} opacity-20 rounded-full blur-3xl`}></div>
+            <div className={`absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr ${memberLevel.color} opacity-10 rounded-full blur-2xl`}></div>
+            <div className="relative p-6 flex flex-col justify-between h-full min-h-[200px]">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-neutral-400 text-xs font-semibold uppercase tracking-wider mb-1">身份登记</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`material-symbols-outlined ${memberLevel.textColor}`}>{memberLevel.icon}</span>
+                    <p className="text-neutral-400 text-xs font-semibold uppercase tracking-wider">{memberLevel.name}</p>
+                  </div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-extrabold tracking-tight gold-gradient-text">{userPoints.toLocaleString()}</span>
-                    <span className="text-accent-gold text-sm font-bold">分</span>
+                    <span className={`text-4xl font-extrabold tracking-tight bg-gradient-to-r ${memberLevel.color} bg-clip-text text-transparent`}>{userPoints.toLocaleString()}</span>
+                    <span className={`text-sm font-bold ${memberLevel.textColor}`}>积分</span>
                   </div>
                 </div>
-                <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm border border-white/5">
-                  <span className="material-symbols-outlined text-accent-gold" style={{ fontSize: '28px' }}>pets</span>
+                <div className={`p-3 rounded-2xl backdrop-blur-sm border border-white/10 bg-gradient-to-br ${memberLevel.color} bg-opacity-20`}>
+                  <span className="material-symbols-outlined text-white" style={{ fontSize: '32px' }}>{memberLevel.icon}</span>
                 </div>
               </div>
-              <div className="mt-8 flex items-center justify-between">
-                <div className="flex -space-x-2 overflow-hidden">
-                  <div className="h-2 w-24 bg-neutral-800 rounded-full overflow-hidden relative">
-                    <div className="absolute top-0 left-0 h-full w-3/4 bg-gradient-to-r from-[#B8860B] to-[#F3E5AB]"></div>
+              
+              {/* 进度条 */}
+              <div className="mt-6">
+                {memberLevel.nextLevel ? (
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-neutral-400">距离 {memberLevel.nextLevel}</span>
+                      <span className="text-xs text-neutral-400">还需 {(memberLevel.nextPoints! - userPoints).toLocaleString()} 积分</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full bg-gradient-to-r ${memberLevel.progressColor} rounded-full transition-all duration-500`}
+                        style={{ width: `${Math.min(memberLevel.progress, 100)}%` }}
+                      ></div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-neutral-400">
+                    <span className="material-symbols-outlined text-purple-400">verified</span>
+                    <span>恭喜！您已达到最高等级</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-center justify-between">
+                <button 
+                  onClick={() => setShowLevelPathModal(true)} 
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-sm text-neutral-400">route</span>
+                  <span className="text-xs font-medium text-neutral-300">成长路径</span>
+                </button>
                 <button onClick={() => setShowHistoryModal(true)} className="group flex items-center gap-2 px-4 py-2 bg-white text-[#141414] rounded-lg text-xs font-bold hover:bg-neutral-200 transition-colors">
                   历史记录
                   <span className="material-symbols-outlined text-[16px] group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
@@ -684,11 +919,23 @@ export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; point
               </div>
               <div className="flex flex-col items-start flex-1">
                 <span className="text-base font-bold text-primary leading-tight">后台管理</span>
-                <span className="text-xs text-neutral-500 mt-1">管理医生、用户、预约、兑换码</span>
+                <span className="text-xs text-neutral-500 mt-1">管理医生、用户、预约、兑换码、会员等级</span>
               </div>
               <span className="material-symbols-outlined text-neutral-400 group-hover:text-primary transition-colors">chevron_right</span>
             </button>
           )}
+          <button 
+            onClick={() => setShowLevelPathModal(true)}
+            className="flex items-center gap-4 p-4 rounded-2xl bg-neutral-50 hover:bg-neutral-100 transition-all border border-transparent hover:shadow-sm group">
+            <div className="flex items-center justify-center shrink-0 size-12 rounded-xl bg-white shadow-sm text-primary group-hover:scale-105 transition-transform">
+              <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>trending_up</span>
+            </div>
+            <div className="flex flex-col items-start flex-1">
+              <span className="text-base font-bold text-primary leading-tight">会员成长</span>
+              <span className="text-xs text-neutral-500 mt-1">查看完整成长路径</span>
+            </div>
+            <span className="material-symbols-outlined text-neutral-400 group-hover:text-primary transition-colors">chevron_right</span>
+          </button>
           <button 
             onClick={() => onNavigate(ScreenName.APPOINTMENTS_LIST)}
             className="flex items-center gap-4 p-4 rounded-2xl bg-neutral-50 hover:bg-neutral-100 transition-all border border-transparent hover:shadow-sm group">
@@ -837,6 +1084,160 @@ export const UserProfileScreen: React.FC<NavProps & { userPoints?: number; point
               >
                 退出
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 编辑昵称模态框 */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowEditModal(false)}></div>
+          <div className="relative bg-white rounded-3xl p-6 max-w-xs w-full animate-in fade-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-center mb-4">修改昵称</h3>
+            <input
+              type="text"
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              placeholder="请输入新昵称"
+              className="w-full h-12 rounded-xl bg-neutral-50 border border-neutral-200 px-4 text-base font-medium focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none mb-4"
+            />
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowEditModal(false)}
+                className="flex-1 h-12 rounded-xl bg-neutral-100 text-neutral-700 font-bold text-sm hover:bg-neutral-200 transition-colors"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleUpdateName}
+                disabled={isUpdating || !editName.trim()}
+                className="flex-1 h-12 rounded-xl bg-primary text-white font-bold text-sm hover:bg-neutral-800 shadow-lg shadow-primary/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isUpdating ? (
+                  <>
+                    <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                    保存中
+                  </>
+                ) : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 成长路径模态框 */}
+      {showLevelPathModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto" onClick={() => setShowLevelPathModal(false)}></div>
+          <div className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 pointer-events-auto animate-in slide-in-from-bottom-full sm:zoom-in duration-300 max-h-[85vh] flex flex-col">
+            <div className="w-12 h-1.5 bg-neutral-200 rounded-full mx-auto mb-4 sm:hidden"></div>
+            <div className="flex justify-between items-center mb-6">
+               <h3 className="text-xl font-bold text-primary">会员成长路径</h3>
+               <button onClick={() => setShowLevelPathModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-neutral-100 hover:bg-neutral-200 transition-colors">
+                 <span className="material-symbols-outlined text-sm">close</span>
+               </button>
+            </div>
+            
+            {/* 当前状态 */}
+            <div className="bg-gradient-to-r from-primary to-neutral-700 rounded-2xl p-4 mb-6 text-white">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-white/20`}>
+                  <span className="material-symbols-outlined text-2xl">{memberLevel.icon}</span>
+                </div>
+                <div className="flex-1">
+                  <div className="text-xs text-white/70 mb-1">当前等级</div>
+                  <div className="font-bold text-lg">{memberLevel.name}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold">{userPoints.toLocaleString()}</div>
+                  <div className="text-xs text-white/70">积分</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* 等级列表 */}
+            <div className="overflow-y-auto flex-1 -mx-2 px-2 space-y-3">
+              {memberLevels.sort((a, b) => a.level_order - b.level_order).map((level, index) => {
+                const isCurrentLevel = userPoints >= level.min_points && 
+                  (level.max_points === null || userPoints <= level.max_points);
+                const isAchieved = userPoints >= level.min_points;
+                const isNextLevel = !isAchieved && (index === 0 || userPoints >= memberLevels[index - 1]?.min_points);
+                
+                return (
+                  <div 
+                    key={level.id} 
+                    className={`relative flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
+                      isCurrentLevel 
+                        ? 'bg-primary/5 border-primary shadow-lg shadow-primary/10' 
+                        : isAchieved 
+                          ? 'bg-green-50 border-green-200' 
+                          : 'bg-neutral-50 border-neutral-100'
+                    }`}
+                  >
+                    {/* 连接线 */}
+                    {index < memberLevels.length - 1 && (
+                      <div className={`absolute left-7 top-full w-0.5 h-3 ${isAchieved ? 'bg-green-300' : 'bg-neutral-200'}`}></div>
+                    )}
+                    
+                    {/* 图标 */}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      isCurrentLevel 
+                        ? 'bg-primary text-white' 
+                        : isAchieved 
+                          ? 'bg-green-500 text-white' 
+                          : 'bg-neutral-200 text-neutral-400'
+                    }`}>
+                      {isAchieved && !isCurrentLevel ? (
+                        <span className="material-symbols-outlined">check</span>
+                      ) : (
+                        <span className="material-symbols-outlined">{level.icon}</span>
+                      )}
+                    </div>
+                    
+                    {/* 等级信息 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold ${isCurrentLevel ? 'text-primary' : isAchieved ? 'text-green-700' : 'text-neutral-600'}`}>
+                          {level.name}
+                        </span>
+                        {isCurrentLevel && (
+                          <span className="px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold">当前</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-neutral-500 mt-1">
+                        {level.min_points.toLocaleString()} - {level.max_points ? level.max_points.toLocaleString() : '∞'} 积分
+                      </div>
+                    </div>
+                    
+                    {/* 状态指示 */}
+                    <div className="shrink-0">
+                      {isCurrentLevel ? (
+                        <span className="material-symbols-outlined text-primary">stars</span>
+                      ) : isAchieved ? (
+                        <span className="material-symbols-outlined text-green-500">verified</span>
+                      ) : isNextLevel ? (
+                        <span className="text-xs text-neutral-500 font-medium">
+                          还需 {(level.min_points - userPoints).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="material-symbols-outlined text-neutral-300">lock</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* 提示 */}
+            <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-100">
+              <div className="flex items-start gap-2">
+                <span className="material-symbols-outlined text-amber-500 text-lg">tips_and_updates</span>
+                <div className="text-xs text-amber-700">
+                  <div className="font-bold mb-1">如何获取积分？</div>
+                  <div>完成预约、兑换码兑换、参与活动等方式都可以获得积分哦~</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
