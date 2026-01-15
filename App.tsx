@@ -38,6 +38,10 @@ const App: React.FC = () => {
   // Prefill login email after register
   const [prefillLoginEmail, setPrefillLoginEmail] = useState<string>('');
 
+  // Toast for welcome message after login
+  const [welcomeToast, setWelcomeToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const pendingWelcomeRef = useRef(false);
+
   // If user just registered, force them back to login (avoid auto-redirect to app on SIGNED_IN)
   const forceLoginAfterRegisterRef = useRef(false);
 
@@ -115,6 +119,12 @@ const App: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!welcomeToast.show) return;
+    const timer = setTimeout(() => setWelcomeToast({ show: false, message: '' }), 2000);
+    return () => clearTimeout(timer);
+  }, [welcomeToast.show]);
+
   const loadUserData = async () => {
     try {
       const profile = await authService.getCurrentUserProfile();
@@ -125,6 +135,11 @@ const App: React.FC = () => {
       
       setUser(profile);
       setUserPoints(profile.points);
+
+      if (pendingWelcomeRef.current) {
+        pendingWelcomeRef.current = false;
+        setWelcomeToast({ show: true, message: `欢迎回来，${profile.name || '用户'}！` });
+      }
 
       // Parallel fetch for other data
       const [userPets, userApts, userChats, history] = await Promise.all([
@@ -164,6 +179,7 @@ const App: React.FC = () => {
     try {
       await authService.signIn(email, pass);
       setPrefillLoginEmail('');
+      pendingWelcomeRef.current = true;
       // Auth state listener will handle redirection
       return true;
     } catch (e) {
@@ -295,6 +311,14 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background-light text-primary">
+      {welcomeToast.show && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[70] bg-black/80 text-white px-6 py-3 rounded-2xl backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-green-400">check_circle</span>
+            <span className="font-medium text-sm">{welcomeToast.message}</span>
+          </div>
+        </div>
+      )}
       {currentScreen === ScreenName.WELCOME && <WelcomeScreen onNavigate={navigate} />}
       {currentScreen === ScreenName.LOGIN && <LoginScreen onNavigate={navigate} onLogin={handleLogin} prefillEmail={prefillLoginEmail} />}
       {currentScreen === ScreenName.REGISTER && <RegisterScreen onNavigate={navigate} onRegister={handleRegister} />}
