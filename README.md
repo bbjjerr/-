@@ -151,11 +151,7 @@ petcare-pro/
 
 ---
 
-## 🔗 相关链接
 
-- **AI Studio 预览**: https://ai.studio/apps/drive/1gX1I_Hq66-Ki441kcn6lUOskQ8Avtzk4
-
----
 
 ## 📝 Supabase 配置
 
